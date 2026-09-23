@@ -343,7 +343,10 @@ window.__ModuleLoader__.load({
       '.dwb-ver{font-family:ui-monospace,Consolas,monospace;letter-spacing:.02em;color:var(--dsw-alias-label-primary)}',
       '.dwb-hint{font-size:11px;color:var(--dsw-alias-label-secondary);padding:6px 9px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);border:1px dashed var(--dsw-alias-border-l2)}',
       '.dwb-cols{display:grid;grid-template-columns:minmax(184px,236px) minmax(0,1fr);gap:12px;align-items:start}',
-      '.dwb-list{display:flex;flex-direction:column;gap:3px;max-height:560px;overflow:auto;padding-right:2px}',
+      '.dwb-list{display:flex;flex-direction:column;gap:3px;max-height:560px;overflow:auto;padding-right:2px;scrollbar-gutter:stable}',
+      // 条目区自己滚：一栏十几条时，让它撑高整个设置页比让它内部滚动难用得多。
+      // 标题留在容器外，滚动时还看得见自己在看哪一段。
+      '.dwb-entries{display:flex;flex-direction:column;gap:8px;max-height:min(560px,52vh);overflow:auto;padding-right:2px;scrollbar-gutter:stable}',
       '.dwb-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}',
       '.dwb-item:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.dwb-item.on{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}',
@@ -1400,18 +1403,22 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dwb-title' }, isOther ? t('own.title.other') : t('own.title')),
               h('div', { className: 'dwb-sub' }, currentCard ? currentCard.name : ''),
               (lookup ? lookup.own : ownEntries).length
-                ? (lookup ? lookup.own : ownEntries).map((entry) =>
-                    h(EntryView, {
-                      key: entry.id,
-                      entry,
-                      cards,
-                      pending,
-                      setPending,
-                      onEdit: openEditor,
-                      onDelete: removeEntry,
-                      onCopy: copyTo,
-                      onStatus: setStatus,
-                    }),
+                ? h(
+                    'div',
+                    { className: 'dwb-entries' },
+                    (lookup ? lookup.own : ownEntries).map((entry) =>
+                      h(EntryView, {
+                        key: entry.id,
+                        entry,
+                        cards,
+                        pending,
+                        setPending,
+                        onEdit: openEditor,
+                        onDelete: removeEntry,
+                        onCopy: copyTo,
+                        onStatus: setStatus,
+                      }),
+                    ),
                   )
                 : h('div', { className: 'dwb-empty' }, t('own.empty')),
             ),
@@ -1423,18 +1430,22 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'dwb-title' }, isOther ? t('cross.title.other') : t('cross.title')),
                   h('div', { className: 'dwb-sub' }, `${isOther ? t('cards.title.other') : t('cards.title')} · ${lookup.cross.length}`),
                   lookup.cross.length
-                    ? lookup.cross.map((entry) =>
-                        h(EntryView, {
-                          key: entry.id,
-                          entry,
-                          cards,
-                          pending,
-                          setPending,
-                          onEdit: openEditor,
-                          onDelete: removeEntry,
-                          onCopy: copyTo,
-                          onStatus: setStatus,
-                        }),
+                    ? h(
+                        'div',
+                        { className: 'dwb-entries' },
+                        lookup.cross.map((entry) =>
+                          h(EntryView, {
+                            key: entry.id,
+                            entry,
+                            cards,
+                            pending,
+                            setPending,
+                            onEdit: openEditor,
+                            onDelete: removeEntry,
+                            onCopy: copyTo,
+                            onStatus: setStatus,
+                          }),
+                        ),
                       )
                     : h('div', { className: 'dwb-empty' }, t('cross.empty')),
                 )

@@ -259,6 +259,8 @@ const rows = findByType(tree, 'CardRow')
 check('人物卡错题页卡列表一项', rows.length === 1, rows.map((n) => n.props.card.name).join('|'))
 check('卡列表带名字', rows.map((n) => n.props.card.name).join('|') === '测试卡A', rows.map((n) => n.props.card.name).join('|'))
 check('有图的卡走 img 分支', rows.map((n) => Boolean(n.props.card.avatar)).join(',') === 'true')
+check('条目区有自己的滚动容器', findByClass(tree, 'dwb-entries').length === 1, String(findByClass(tree, 'dwb-entries').length))
+check('左栏分类列表也有滚动容器', findByClass(tree, 'dwb-list').length === 1)
 const entries = findByType(tree, 'EntryView')
 check('EntryView 收到本卡条目', entries.length === 1 && entries[0].props.entry.id === 'e_demo1', entries.map((n) => n.props.entry.title).join(','))
 
