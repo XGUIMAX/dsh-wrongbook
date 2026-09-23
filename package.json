@@ -1,0 +1,47 @@
+{
+  "name": "dsh-wrongbook",
+  "version": "1.0.0",
+  "description": "DSH Tavern 错题库：按人物卡分类记录调试中踩过的坑，调试时先查本卡错题库、再跨卡查询。Wrongbook for DSH Tavern: per-card defect ledger with own-card-first lookup.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-tavern",
+    "tavern",
+    "character-card",
+    "wrongbook",
+    "debug"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.1.0-rc.8 <0.2.0"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
