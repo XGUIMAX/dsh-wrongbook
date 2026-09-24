@@ -225,6 +225,19 @@ check('解析：唯一模糊命中直接采用', (await resolve('测试卡A MVU�
 check('解析：命中多张卡时不猜', (await resolve('测试卡')) === s1.generalKey, await resolve('测试卡'))
 check('解析：同一输入两次结果一致', (await resolve('测试卡A MVU')) === (await resolve('测试卡A MVU')))
 
+/* 原版卡和它的 MVU 版是两个分类：对上两个就不许猜 */
+const pair = (await action({ action: 'lookup', card: '卡A' })).result
+check('解析：同一张卡的两个版本也不猜', pair.cardKey === s1.generalKey, pair.cardKey)
+check(
+  '解析：带回候选让人补全',
+  pair.candidates.length === 2 && pair.candidates.includes('测试卡A MVU版本'),
+  pair.candidates.join('、'),
+)
+const refused = await action({ action: 'addEntry', card: '卡A', entry: { title: '不该落进来' } })
+check('多候选时 refuse 记录', refused.ok === false && /对上了 2 个分类/.test(refused.error || ''), refused.error)
+const pairText = (await toolMap['wrongbook_lookup'].execute({ card: '卡A' }, {})).text
+check('多候选时工具输出给出提示', pairText.includes('对上了 2 个分类') && pairText.includes('请写全名字'), (pairText.split('\n')[1] || '').trim())
+
 /* 名字不认识时建分类，而不是静默落兜底 */
 const madeUp = await action({ action: 'addEntry', card: '某个新插件', entry: { title: '新插件的问题' } })
 check('陌生名字建出新分类', madeUp.ok === true && madeUp.created === '某个新插件', madeUp.created || madeUp.error)

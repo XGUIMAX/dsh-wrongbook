@@ -155,6 +155,7 @@ window.__ModuleLoader__.load({
       'bucket.deleteHint': '删掉分类时，它下面的记录会移到「通用 / 未归类」，不会跟着一起消失。',
       'bucket.otherHint': '不挂在人物卡上的问题放这里：插件自身的更新链、合并策略、工具链、界面。',
       'chip.other': '其它',
+      'chip.plain': '原版',
       'btn.deleteBucket': '删除分类',
       'ok.bucketAdded': '已新增分类「{name}」',
       'ok.bucketRemoved': '已删除分类，{n} 条记录移到「通用 / 未归类」',
@@ -298,6 +299,7 @@ window.__ModuleLoader__.load({
       'bucket.deleteHint': 'Deleting a bucket moves its records to "General / Unsorted" instead of removing them.',
       'bucket.otherHint': 'Issues that do not belong to a character card: plugin update chains, merge policy, tooling, UI.',
       'chip.other': 'other',
+      'chip.plain': 'plain',
       'btn.deleteBucket': 'Delete bucket',
       'ok.bucketAdded': 'Bucket "{name}" added',
       'ok.bucketRemoved': 'Bucket deleted, {n} records moved to "General / Unsorted"',
@@ -519,9 +521,11 @@ window.__ModuleLoader__.load({
             { className: 'dwb-row', style: { gap: 4 } },
             card.group === 'other'
               ? h('span', { className: 'dwb-chip' }, t('chip.other'))
-              : card.kind === 'mvu'
-                ? h('span', { className: 'dwb-chip' }, 'MVU')
-                : null,
+              : h(
+                  'span',
+                  { className: `dwb-chip${card.kind === 'mvu' ? ' warn' : ''}` },
+                  card.kind === 'mvu' ? 'MVU' : t('chip.plain'),
+                ),
             card.missing ? h('span', { className: 'dwb-chip warn' }, '!') : null,
             h('span', { className: 'dwb-item-sub' }, `${(card.count && card.count.total) || 0}`),
           ),
