@@ -281,6 +281,40 @@ check('压缩时说明总数', wide.includes('共 1'), wide.split('\n').filter((
 const narrow = (await toolMap['wrongbook_lookup'].execute({ card: '测试卡A', query: '批量用例' }, {})).text
 check('带关键词时 ② 全列', printed(narrow) === 10, String(printed(narrow)))
 
+/* 分段的截断必须各算各的：本分类的低分条目不能被跨卡的高分条目挤出名额 */
+const bullies = []
+for (let i = 0; i < 20; i += 1) bullies.push({ cardKey: '__other_card-cases__', title: `压制用例 ${i}` })
+await action({ action: 'importEntries', json: JSON.stringify({ entries: bullies }) })
+const squeezed = (await action({ action: 'lookup', card: 'cards/测试卡A.json', limit: 2 })).result
+check('limit 很小也留得住本分类', squeezed.own.length >= 1, `own=${squeezed.own.length} other=${squeezed.other.length}`)
+check('other 段被 limit 限制', squeezed.other.length === 2, String(squeezed.other.length))
+check('各段带回真实总数', squeezed.otherTotal > squeezed.other.length, `other=${squeezed.other.length}/${squeezed.otherTotal}`)
+
+/* 分类计数一次算完，结果要跟逐条数一致 */
+const counted = await state()
+const cardAView = counted.cards.find((c) => c.key === 'cards/测试卡A.json')
+const manual = counted.entries.filter((e) => e.cardKey === 'cards/测试卡A.json').length
+check('分类计数与实际条目数一致', cardAView.count.total === manual, `${cardAView.count.total} vs ${manual}`)
+check(
+  '分类计数按状态细分',
+  cardAView.count.open + cardAView.count.watch + cardAView.count.fixed === cardAView.count.total,
+  JSON.stringify(cardAView.count),
+)
+
+/* 每次写入都要留下自己那份备份：同毫秒撞名会静默覆盖掉其中一份 */
+const beforeBackups = (await state()).backups.length
+for (let i = 0; i < 3; i += 1) {
+  await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: `备份计数 ${i}` } })
+}
+const afterBackups = (await state()).backups.length
+check('三次连续写入留下三份备份', afterBackups === beforeBackups + 3, `${beforeBackups} → ${afterBackups}`)
+const backupNames = (await state()).backups.map((b) => b.file)
+check('备份文件名互不重复', new Set(backupNames).size === backupNames.length, String(backupNames.length))
+
+/* 导入时名字对上多个分类：跳过并计数，不是整批失败 */
+const ambiguous = await action({ action: 'importEntries', json: JSON.stringify({ entries: [{ cardKey: '卡A', title: '模棱两可' }] }) })
+check('导入跳过模棱两可的条目并计数', ambiguous.ambiguous === 1 && ambiguous.added === 0, JSON.stringify(ambiguous))
+
 /* 导入去重：同分类同标题算重，不同分类不算 */const dup = await action({
   action: 'importEntries',
   json: JSON.stringify({

@@ -1442,7 +1442,7 @@ window.__ModuleLoader__.load({
                         'div',
                         { className: 'dwb-card' },
                         h('div', { className: 'dwb-title' }, t('other.title')),
-                        h('div', { className: 'dwb-sub' }, `${t('cards.title.other')} · ${lookup.other.length}`),
+                        h('div', { className: 'dwb-sub' }, `${t('cards.title.other')} · ${lookup.otherTotal ?? lookup.other.length}`),
                         h(
                           'div',
                           { className: 'dwb-entries' },
@@ -1467,7 +1467,7 @@ window.__ModuleLoader__.load({
                         'div',
                         { className: 'dwb-card' },
                         h('div', { className: 'dwb-title' }, t('cross.title')),
-                        h('div', { className: 'dwb-sub' }, `${t('cards.title')} · ${lookup.cross.length}`),
+                        h('div', { className: 'dwb-sub' }, `${t('cards.title')} · ${lookup.crossTotal ?? lookup.cross.length}`),
                         h(
                           'div',
                           { className: 'dwb-entries' },
