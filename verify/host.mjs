@@ -22,10 +22,17 @@ const mod = await import(new URL('../lib/index.js', import.meta.url).href)
 
 const routes = []
 const tools = []
+const sections = []
 const webServer = { register: (r) => (routes.push(r), () => {}) }
 const toolsApi = { register: (d) => (tools.push(d), () => {}) }
+const promptApi = { section: (s) => (sections.push(s), () => {}) }
 const ctx = {
-  get: (key) => (key === 'tools' ? toolsApi : undefined),
+  // 服务按注入的方式挂在 ctx 上（插件用 `export const inject` 声明）。
+  // `get` 故意拿不到东西：真实环境里它拿不到未注入的服务，而这正是工具
+  // 少注册了半年的原因 —— 面板照常工作，模型侧空空如也。
+  tools: toolsApi,
+  systemPrompt: promptApi,
+  get: () => undefined,
   inject: (deps, cb) => cb({ webServer, effect: (fn) => void fn() }),
   effect: (fn) => void fn(),
 }
@@ -35,10 +42,27 @@ const check = (label, ok, extra) => results.push({ label, ok, extra })
 
 check('name 导出', mod.name === 'dsh-wrongbook', mod.name)
 check('apply 是函数', typeof mod.apply === 'function')
+check(
+  '声明了 tools 与 systemPrompt 注入',
+  Array.isArray(mod.inject) && mod.inject.includes('tools') && mod.inject.includes('systemPrompt'),
+  JSON.stringify(mod.inject),
+)
 mod.apply(ctx)
 const toolMap = Object.fromEntries(tools.map((d) => [d.name, d]))
 check('注册了 4 条路由', routes.length === 4, routes.map((r) => r.path).join(', '))
 check('注册了 3 个工具', tools.length === 3, tools.map((d) => d.name).join(', '))
+
+/* 提示段：工具注册只解决「能用」，这一段解决「会用」 */
+const promptSection = sections.find((s) => s.name === 'dsh-wrongbook')
+check('注入了错题库提示段', !!promptSection, sections.map((s) => s.name).join(', '))
+if (promptSection) {
+  const promptText = promptSection.text()
+  check('提示段给出三段检索顺序', promptText.includes('① 本分类 → ② 其它错题 → ③ 跨卡查询'))
+  check('提示段要求归档后回报「已归档」', promptText.includes('已归档到错题库'))
+  check('提示段点名两个工具', promptText.includes('wrongbook_lookup') && promptText.includes('wrongbook_record'))
+  check('提示段禁止再写进 md 文件', promptText.includes('不要再把错题写进 md'))
+  check('提示段顺序值不与别家撞车', promptSection.order === 5100, String(promptSection.order))
+}
 
 function fakeRes() {
   return {
