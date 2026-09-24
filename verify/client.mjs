@@ -155,10 +155,79 @@ const STATE = {
   },
 }
 
-const fetchStub = async (url) =>
-  String(url).includes('/state')
-    ? { status: 200, ok: true, json: async () => STATE }
-    : { status: 200, ok: true, json: async () => ({ ok: true }) }
+/** 一次跨卡查询的返回：三段各一条，用来验证三段都渲染得出来。 */
+const LOOKUP = {
+  cardKey: 'cards/测试卡A.json',
+  cardName: '测试卡A',
+  cardGroup: 'card',
+  own: [
+    {
+      id: 'e_own',
+      cardKey: 'cards/测试卡A.json',
+      title: '状态栏空白',
+      scope: 'MVU',
+      status: 'open',
+      tags: ['MVU'],
+      symptom: '',
+      cause: '',
+      fix: '',
+      refs: '',
+      evidence: '',
+      createdAt: '',
+      updatedAt: '2026-09-23T10:00:00.000Z',
+    },
+  ],
+  other: [
+    {
+      id: 'e_other',
+      cardKey: '__other_card-updater__',
+      title: '合并会覆盖状态栏入口',
+      scope: '工具链',
+      status: 'fixed',
+      tags: ['U-01'],
+      symptom: '',
+      cause: '',
+      fix: '',
+      refs: '',
+      evidence: '',
+      createdAt: '',
+      updatedAt: '2026-09-23T10:00:00.000Z',
+    },
+  ],
+  cross: [
+    {
+      id: 'e_cross',
+      cardKey: 'cards/测试卡B.json',
+      title: '状态栏串台',
+      scope: 'MVU',
+      status: 'open',
+      tags: [],
+      symptom: '',
+      cause: '',
+      fix: '',
+      refs: '',
+      evidence: '',
+      createdAt: '',
+      updatedAt: '2026-09-23T10:00:00.000Z',
+    },
+  ],
+  scanned: 3,
+}
+
+const fetchStub = async (url, init) => {
+  const target = String(url)
+  if (target.includes('/state')) return { status: 200, ok: true, json: async () => STATE }
+  if (target.includes('/action')) {
+    let body = {}
+    try {
+      body = JSON.parse((init && init.body) || '{}')
+    } catch {
+      body = {}
+    }
+    if (body.action === 'lookup') return { status: 200, ok: true, json: async () => ({ ok: true, result: LOOKUP }) }
+  }
+  return { status: 200, ok: true, json: async () => ({ ok: true }) }
+}
 
 const results = []
 const check = (label, ok, extra) => results.push({ label, ok, extra })
@@ -248,7 +317,7 @@ function findByType(node, name, acc = []) {
 check('渲染出主分支', !out.texts.includes('连不上后台'))
 check('标题「错题库」', out.texts.includes('错题库'))
 check('「① 本卡错题库」', out.texts.includes('① 本卡错题库'))
-check('检索顺序提示', out.texts.some((t) => t.includes('① 本卡错题库 → ② 跨卡查询')))
+check('检索顺序提示是三段', out.texts.some((t) => t.includes('① 本卡错题库 → ② 其它错题 → ③ 跨卡查询')), out.texts.filter((t) => t.includes('检索顺序')).join(' / '))
 check('无查询时不渲染 ②', !out.texts.includes('② 跨卡查询'))
 check('卡名显示', out.texts.includes('测试卡A'))
 check('版本号显示', out.texts.includes('v1.0.0'))
@@ -261,6 +330,27 @@ check('卡列表带名字', rows.map((n) => n.props.card.name).join('|') === '�
 check('有图的卡走 img 分支', rows.map((n) => Boolean(n.props.card.avatar)).join(',') === 'true')
 check('条目区有自己的滚动容器', findByClass(tree, 'dwb-entries').length === 1, String(findByClass(tree, 'dwb-entries').length))
 check('左栏分类列表也有滚动容器', findByClass(tree, 'dwb-list').length === 1)
+
+/* 跨卡查询：三段都渲染得出来，而且各归各位 */
+const searchBox = findByClass(tree, 'dwb-input').find((n) => String(n.props.placeholder || '').includes('跨卡查询'))
+check('有跨卡查询输入框', !!searchBox)
+if (searchBox) {
+  searchBox.props.onChange({ target: { value: '状态栏' } })
+  renderOnce()
+  for (const fn of effects.slice()) fn()
+  await new Promise((r) => setTimeout(r, 320))
+  const lookupTree = renderOnce()
+  check(
+    '三段标题都渲染',
+    out.texts.includes('① 本卡错题库') && out.texts.includes('② 其它错题') && out.texts.includes('③ 跨卡查询'),
+    out.texts.filter((t) => /[①②③]/.test(t)).join(' / '),
+  )
+  const triEntries = findByType(lookupTree, 'EntryView')
+  check('三段各出一条', triEntries.length === 3, String(triEntries.length))
+  check('own 段是本分类的条目', triEntries.some((n) => n.props.entry.cardKey === 'cards/测试卡A.json'))
+  check('other 段是其它错题的条目', triEntries.some((n) => n.props.entry.cardKey.startsWith('__other_')))
+  check('cross 段是别的卡的条目', triEntries.some((n) => n.props.entry.cardKey === 'cards/测试卡B.json'))
+}
 const entries = findByType(tree, 'EntryView')
 check('EntryView 收到本卡条目', entries.length === 1 && entries[0].props.entry.id === 'e_demo1', entries.map((n) => n.props.entry.title).join(','))
 

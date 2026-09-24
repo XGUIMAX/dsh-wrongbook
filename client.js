@@ -51,11 +51,12 @@ window.__ModuleLoader__.load({
       'btn.copyTo': '复制到配对卡',
       'btn.rename': '改分类名',
       'btn.markFixed': '标记已修复',
-      'order.hint': '调试检索顺序：① 本卡错题库 → ② 跨卡查询',
+      'order.hint': '调试检索顺序：① 本卡错题库 → ② 其它错题 → ③ 跨卡查询',
       'own.title': '① 本卡错题库',
       'own.title.other': '① 本分类错题库',
-      'cross.title': '② 跨卡查询',
-      'cross.title.other': '② 跨分类查询',
+      'other.title': '② 其它错题',
+      'cross.title': '③ 跨卡查询',
+      'other.empty': '其它错题那一组里没有相似记录。',
       'own.empty': '这张卡还没有记录。第一次踩坑之后，把它记下来。',
       'cross.empty': '其余卡片里没有相似记录。',
       'cards.title': '卡片分类',
@@ -193,11 +194,12 @@ window.__ModuleLoader__.load({
       'btn.copyTo': 'Copy to paired card',
       'btn.rename': 'Rename bucket',
       'btn.markFixed': 'Mark fixed',
-      'order.hint': 'Debug lookup order: (1) this card\u2019s own entries \u2192 (2) cross-card search',
+      'order.hint': 'Debug lookup order: (1) this card \u2192 (2) other issues \u2192 (3) the rest of the cards',
       'own.title': '1) This card',
       'own.title.other': '1) This bucket',
-      'cross.title': '2) Cross-card',
-      'cross.title.other': '2) Other buckets',
+      'other.title': '2) Other issues',
+      'cross.title': '3) Cross-card',
+      'other.empty': 'Nothing similar in the other-issues group.',
       'own.empty': 'Nothing recorded for this card yet.',
       'cross.empty': 'No similar records on other cards.',
       'cards.title': 'Card buckets',
@@ -1422,34 +1424,69 @@ window.__ModuleLoader__.load({
                   )
                 : h('div', { className: 'dwb-empty' }, t('own.empty')),
             ),
-            // ② 跨卡查询。只有输入了关键词才出现，避免跟 ① 重复刷屏。
-            lookup
+            // ② 其它错题 → ③ 跨卡查询。
+            //
+            // 中间那一段是给「归类偏了」准备的：归档位置可能不精确，但内容还在库里，
+            // 不该因为落错了组就检索不到。它排在跨卡之前，因为插件与工具链上的坑
+            // 影响的往往不止一张卡。两段都空时给一句总提示，不摆两个空框。
+            lookup && (lookup.other.length || lookup.cross.length)
               ? h(
-                  'div',
-                  { className: 'dwb-card' },
-                  h('div', { className: 'dwb-title' }, isOther ? t('cross.title.other') : t('cross.title')),
-                  h('div', { className: 'dwb-sub' }, `${isOther ? t('cards.title.other') : t('cards.title')} · ${lookup.cross.length}`),
+                  Fragment,
+                  null,
+                  lookup.other.length
+                    ? h(
+                        'div',
+                        { className: 'dwb-card' },
+                        h('div', { className: 'dwb-title' }, t('other.title')),
+                        h('div', { className: 'dwb-sub' }, `${t('cards.title.other')} · ${lookup.other.length}`),
+                        h(
+                          'div',
+                          { className: 'dwb-entries' },
+                          lookup.other.map((entry) =>
+                            h(EntryView, {
+                              key: entry.id,
+                              entry,
+                              cards,
+                              pending,
+                              setPending,
+                              onEdit: openEditor,
+                              onDelete: removeEntry,
+                              onCopy: copyTo,
+                              onStatus: setStatus,
+                            }),
+                          ),
+                        ),
+                      )
+                    : null,
                   lookup.cross.length
                     ? h(
                         'div',
-                        { className: 'dwb-entries' },
-                        lookup.cross.map((entry) =>
-                          h(EntryView, {
-                            key: entry.id,
-                            entry,
-                            cards,
-                            pending,
-                            setPending,
-                            onEdit: openEditor,
-                            onDelete: removeEntry,
-                            onCopy: copyTo,
-                            onStatus: setStatus,
-                          }),
+                        { className: 'dwb-card' },
+                        h('div', { className: 'dwb-title' }, t('cross.title')),
+                        h('div', { className: 'dwb-sub' }, `${t('cards.title')} · ${lookup.cross.length}`),
+                        h(
+                          'div',
+                          { className: 'dwb-entries' },
+                          lookup.cross.map((entry) =>
+                            h(EntryView, {
+                              key: entry.id,
+                              entry,
+                              cards,
+                              pending,
+                              setPending,
+                              onEdit: openEditor,
+                              onDelete: removeEntry,
+                              onCopy: copyTo,
+                              onStatus: setStatus,
+                            }),
+                          ),
                         ),
                       )
-                    : h('div', { className: 'dwb-empty' }, t('cross.empty')),
+                    : null,
                 )
-              : null,
+              : lookup
+                ? h('div', { className: 'dwb-card' }, h('div', { className: 'dwb-empty' }, t('cross.empty')))
+                : null,
           ),
         ),
       )

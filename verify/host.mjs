@@ -129,9 +129,10 @@ check('无关键词时列出全部', (await action({ action: 'lookup', card: '�
 
 const text = (await toolMap['wrongbook_lookup'].execute({ card: '测试卡A', query: '状态栏' }, {})).text
 const iOwn = text.indexOf('① 本卡错题库')
-const iCross = text.indexOf('② 跨卡查询')
-check('工具输出含 ①②', iOwn >= 0 && iCross >= 0)
-check('工具输出顺序：本卡在前', iCross > iOwn, `${iOwn} < ${iCross}`)
+const iOther = text.indexOf('② 其它错题')
+const iCross = text.indexOf('③ 跨卡查询')
+check('工具输出含三段标记', iOwn >= 0 && iOther >= 0 && iCross >= 0, `${iOwn}/${iOther}/${iCross}`)
+check('工具输出顺序：本卡 → 其它错题 → 跨卡', iOwn < iOther && iOther < iCross, `${iOwn} < ${iOther} < ${iCross}`)
 check('工具输出含本卡标题', text.includes('状态栏空白'))
 check('工具输出含跨卡卡片名', text.includes('测试卡B'))
 
@@ -184,6 +185,105 @@ check(
 )
 check('deleteBucket 拒绝删卡片分类', (await action({ action: 'deleteBucket', key: 'cards/测试卡A.json' })).ok === false)
 check('deleteBucket 拒绝删兜底分类', (await action({ action: 'deleteBucket', key: s1.generalKey })).ok === false)
+
+/* ================= 全量回归：归类、解析、自动建分类、三段检索 ================= */
+
+const resolve = async (card) => (await action({ action: 'lookup', card })).result.cardKey
+const groupOfKey = async (key) => {
+  const found = (await state()).cards.find((c) => c.key === key)
+  return found ? found.group : ''
+}
+
+/* 归类：写进去的条目必须落在指定分类下，不能串门 */
+for (const target of [
+  'cards/测试卡A.json',
+  'cards/测试卡B.json',
+  'cards/测试卡A MVU版本.json',
+  '__other_card-cases__',
+  '__other_card-updater__',
+  s1.generalKey,
+]) {
+  const r = await action({ action: 'addEntry', cardKey: target, entry: { title: `归类 ${target}` } })
+  check(`addEntry 落在 ${target}`, r.ok === true && r.entry.cardKey === target, r.entry ? r.entry.cardKey : r.error)
+}
+const knownKeys = (await state()).cards.map((c) => c.key)
+const strayEntries = (await state()).entries.filter((e) => !knownKeys.includes(e.cardKey))
+check('没有条目挂在已不存在的分类下', strayEntries.length === 0, strayEntries.map((e) => e.cardKey).join(','))
+
+/* 卡名解析：精确优先；模糊只认同一张卡的版本，否则不猜 */
+check('解析：完整相对路径', (await resolve('cards/测试卡B.json')) === 'cards/测试卡B.json')
+check('解析：带扩展名的卡名', (await resolve('测试卡B.json')) === 'cards/测试卡B.json')
+check('解析：精确卡名', (await resolve('测试卡B')) === 'cards/测试卡B.json')
+check('解析：精确 MVU 卡名', (await resolve('测试卡A MVU版本')) === 'cards/测试卡A MVU版本.json')
+check('解析：其它分类名', (await resolve('卡片更新器')) === '__other_card-updater__')
+check('解析：新分类名', (await resolve('卡内故障')) === '__other_card-cases__')
+check('解析：通用别名', (await resolve('通用')) === s1.generalKey)
+check('解析：未归类别名', (await resolve('未归类')) === s1.generalKey)
+check('解析：空输入', (await resolve('')) === s1.generalKey)
+check('解析：没听说过的名字', (await resolve('完全不存在的名字')) === s1.generalKey)
+check('解析：唯一模糊命中直接采用', (await resolve('测试卡A MVU版')) === 'cards/测试卡A MVU版本.json', await resolve('测试卡A MVU版'))
+check('解析：命中多张卡时不猜', (await resolve('测试卡')) === s1.generalKey, await resolve('测试卡'))
+check('解析：同一输入两次结果一致', (await resolve('测试卡A MVU')) === (await resolve('测试卡A MVU')))
+
+/* 名字不认识时建分类，而不是静默落兜底 */
+const madeUp = await action({ action: 'addEntry', card: '某个新插件', entry: { title: '新插件的问题' } })
+check('陌生名字建出新分类', madeUp.ok === true && madeUp.created === '某个新插件', madeUp.created || madeUp.error)
+check('新分类落在其它组', (await groupOfKey(madeUp.entry.cardKey)) === 'other', await groupOfKey(madeUp.entry.cardKey))
+check('同名再记一次不重复建', (await action({ action: 'addEntry', card: '某个新插件', entry: { title: '第二条' } })).created === '')
+
+const pathLike = await action({ action: 'addEntry', card: 'cards/不存在的卡.json', entry: { title: '路径式名字' } })
+check('路径式陌生名字不建分类', pathLike.created === '' && pathLike.entry.cardKey === s1.generalKey, pathLike.entry.cardKey)
+const explicitGeneral = await action({ action: 'addEntry', card: '通用', entry: { title: '显式兜底' } })
+check('显式「通用」不建分类', explicitGeneral.created === '' && explicitGeneral.entry.cardKey === s1.generalKey)
+
+/* 三段检索：每一段只装该装的东西 */
+const tri = (await action({ action: 'lookup', card: '测试卡A', query: '归类' })).result
+check('三段都是数组', Array.isArray(tri.own) && Array.isArray(tri.other) && Array.isArray(tri.cross))
+check('own 只装本分类', tri.own.every((e) => e.cardKey === 'cards/测试卡A.json'), tri.own.map((e) => e.cardKey).join(','))
+check('other 只装其它错题组', tri.other.every((e) => e.cardKey === s1.generalKey || e.cardKey.startsWith('__other_')), tri.other.map((e) => e.cardKey).join(','))
+check('cross 只装卡片', tri.cross.every((e) => e.cardKey.startsWith('cards/')), tri.cross.map((e) => e.cardKey).join(','))
+check('卡片视角 cardGroup=card', tri.cardGroup === 'card', tri.cardGroup)
+
+const triOther = (await action({ action: 'lookup', card: '卡片更新器', query: '归类' })).result
+check('其它视角：own 是它自己', triOther.own.every((e) => e.cardKey === '__other_card-updater__'), triOther.own.map((e) => e.cardKey).join(','))
+check('其它视角：other 是其余其它错题', triOther.other.every((e) => e.cardKey === s1.generalKey || e.cardKey.startsWith('__other_')), triOther.other.map((e) => e.cardKey).join(','))
+check('其它视角：cross 是卡片', triOther.cross.every((e) => e.cardKey.startsWith('cards/')), triOther.cross.map((e) => e.cardKey).join(','))
+check('其它视角 cardGroup=other', triOther.cardGroup === 'other', triOther.cardGroup)
+
+/* 无关键词时 ② ③ 要压缩，不能把 ① 淹掉 */
+for (let i = 0; i < 10; i += 1) {
+  await action({ action: 'addEntry', cardKey: '__other_card-cases__', entry: { title: `批量用例 ${i}` } })
+}
+const printed = (text) =>
+  text
+    .split('② 其它错题')[1]
+    .split('③ 跨卡查询')[0]
+    .split('\n')
+    .filter((l) => /^- \[/.test(l.trim())).length
+
+const wide = (await toolMap['wrongbook_lookup'].execute({ card: '测试卡A' }, {})).text
+check('无关键词时 ② 只印前 8 条', printed(wide) === 8, String(printed(wide)))
+check('压缩时说明总数', wide.includes('共 1'), wide.split('\n').filter((l) => l.includes('共 ')).join(' / '))
+
+const narrow = (await toolMap['wrongbook_lookup'].execute({ card: '测试卡A', query: '批量用例' }, {})).text
+check('带关键词时 ② 全列', printed(narrow) === 10, String(printed(narrow)))
+
+/* 导入去重：同分类同标题算重，不同分类不算 */const dup = await action({
+  action: 'importEntries',
+  json: JSON.stringify({
+    entries: [
+      { cardKey: 'cards/测试卡A.json', title: '状态栏空白' },
+      { cardKey: 'cards/测试卡B.json', title: '状态栏空白' },
+    ],
+  }),
+})
+check('同分类同标题算重复', dup.added === 1 && dup.skipped === 1, JSON.stringify(dup))
+
+/* 搬运：目标分类要对，源分类要空 */
+const moveSrc = await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '搬运用例' } })
+const moved = await action({ action: 'moveEntry', id: moveSrc.entry.id, toCardKey: 'cards/测试卡B.json' })
+check('moveEntry 落到目标分类', moved.ok === true && moved.entry.cardKey === 'cards/测试卡B.json', moved.entry && moved.entry.cardKey)
+check('moveEntry 不在原分类留副本', (await state()).entries.filter((e) => e.id === moveSrc.entry.id).length === 0)
 
 /* 备份的删除与清理 */
 const bk = await action({ action: 'backupNow' })
