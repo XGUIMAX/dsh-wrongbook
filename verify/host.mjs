@@ -766,6 +766,20 @@ check(
 )
 const settle = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: [sC.id] })
 check('正文含 ### 的条目也能识别成"没变"', settle.unchanged === 1 && settle.written === 0, JSON.stringify(settle).slice(0, 80))
+
+// 条目正文里写到"标记本身长什么样"时（讲格式的时候必然会写），不能凭空多出一条假条目
+const sD = await mk(
+  '讲标记格式的条目',
+  '示例：\n\n```\n### 标题\n<!-- wrongbook:<id>|<status>|<hash> -->\n> 错题库回流：…\n```\n\n正文里的这一行只是举例。',
+)
+const withFake = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: [sD.id] })
+check(
+  '正文里的示例标记不会变出假条目',
+  withFake.written === 1 && withFake.total === 4,
+  `written=${withFake.written} total=${withFake.total}`,
+)
+const settleD = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: [sD.id] })
+check('含示例标记的条目也能识别成"没变"', settleD.unchanged === 1, JSON.stringify(settleD).slice(0, 80))
 const sizeBefore = fs.readFileSync(refluxFile, 'utf8').length
 await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '关掉之后不该再出现' } })
 check(
