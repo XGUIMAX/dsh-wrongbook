@@ -1,4 +1,4 @@
-﻿# dsh-wrongbook
+# dsh-wrongbook
 
 **DSH Tavern 的错题库：按人物卡分类记下调试中踩过的坑，下次先查本卡、再跨卡。**
 
@@ -265,7 +265,7 @@ verify/        两套验收脚本
 ### 验收
 
 ```bash
-node verify/host.mjs      # 216 项：扫描、分组、归类、卡名解析、三段检索、卡内脚本、安装自检、skill 回流与删除、路由、工具、备份
+node verify/host.mjs      # 221 项：扫描、分组、归类、卡名解析、三段检索、卡内脚本、安装自检、skill 回流与删除、路由、工具、备份
 node verify/client.mjs    # 100 项：注册接线、字典一致性、四个页签与两个弹窗、三段渲染、禁用 API 静态检查
 node verify/perf.mjs      # 7 项预算：300 张卡 + 8000 条记录下量一遍最常走的几条路
 ```

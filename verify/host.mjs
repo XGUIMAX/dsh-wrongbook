@@ -104,6 +104,28 @@ const toolMap = Object.fromEntries(tools.map((d) => [d.name, d]))
 check('注册了 6 条路由', routes.length === 6, routes.map((r) => r.path).join(', '))
 check('注册了 3 个工具', tools.length === 3, tools.map((d) => d.name).join(', '))
 
+/* 文本文件不能带 BOM。
+   PowerShell 5.1 的 `Set-Content -Encoding UTF8` 会偷偷加一个，而 JSON.parse 见到就炸 ——
+   表现是插件读自己的 package.json 失败、版本号变成空的。这条挡的是"手改一次文件就把它弄挂"。 */
+for (const rel of ['package.json', 'client.js', 'lib/index.js', 'cordis.patch.yml']) {
+  const buf = fs.readFileSync(path.join(PLUGIN_DIR, rel))
+  check(
+    `${rel} 不带 BOM`,
+    !(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf),
+    `前 3 字节 ${buf.slice(0, 3).toString('hex')}`,
+  )
+}
+check(
+  'package.json 能被 JSON.parse 读回',
+  (() => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(PLUGIN_DIR, 'package.json'), 'utf8')).name === 'dsh-wrongbook'
+    } catch {
+      return false
+    }
+  })(),
+)
+
 /* 提示段：工具注册只解决「能用」，这一段解决「会用」 */
 const promptSection = sections.find((s) => s.name === 'dsh-wrongbook')
 check('注入了错题库提示段', !!promptSection, sections.map((s) => s.name).join(', '))
