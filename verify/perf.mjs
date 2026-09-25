@@ -20,6 +20,14 @@ const CARD_COUNT = 300
 const ENTRY_COUNT = 8000
 const ENTRY_IDS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
+// 回流要有落脚点。放在数据根的 skills 下，跟真实布局一致。
+fs.mkdirSync(path.join(SANDBOX, 'skills', 'perf-notes'), { recursive: true })
+fs.writeFileSync(
+  path.join(SANDBOX, 'skills', 'perf-notes', 'SKILL.md'),
+  '---\nname: perf-notes\ndescription: "基准用"\n---\n',
+  'utf8',
+)
+
 /** 一半原版、一半 MVU 版，凑成 150 对。 */
 for (let i = 0; i < CARD_COUNT / 2; i += 1) {
   const base = `测试卡-${String(i).padStart(3, '0')}`
@@ -133,6 +141,12 @@ await timeIt('rescan（×3）', () => action({ action: 'rescan' }), 3)
 await timeIt('backupNow（×3）', () => action({ action: 'backupNow' }), 3)
 await timeIt('备份列表', () => call('/dsh-wrongbook/state'))
 
+// 自动同步每次记错题都要走一遍全量回流。原来这里是 ids.includes(e.id)，
+// 8000 条时 800 ms —— 换 Set 之后 30 ms 上下，这条预算就是钉住它别再回去。
+const refluxIds = state.entries.map((e) => e.id)
+await timeIt('回流·首次铺满 8000 条', () => action({ action: 'refluxToSkill', skill: 'perf-notes', ids: refluxIds }))
+await timeIt('回流·全部已存在（自动同步的常态）', () => action({ action: 'refluxToSkill', skill: 'perf-notes', ids: refluxIds }))
+
 console.log('')
 const budget = [
   ['importEntries 铺满 8000 条', 4000],
@@ -142,6 +156,8 @@ const budget = [
   ['addEntry', 900],
   ['importEntries 500 条增量', 900],
   ['rescan', 900],
+  ['回流·首次铺满', 400],
+  ['回流·全部已存在', 400],
 ]
 let failed = 0
 for (const [name, limit] of budget) {
