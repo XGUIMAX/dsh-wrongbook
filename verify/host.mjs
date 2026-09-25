@@ -608,6 +608,21 @@ check('默认简介不重复 skill 名', !defaultSkillText.includes('new-notes�
 await action({ action: 'createSkill', name: 'with-desc', description: '排查某类问题时读一遍' })
 const withDesc = fs.readFileSync(path.join(SANDBOX, 'skills', 'with-desc', 'SKILL.md'), 'utf8')
 check('自己写的简介会进 frontmatter', withDesc.includes('description: "排查某类问题时读一遍"'), withDesc.split('\n')[2])
+
+/* 删 skill：先整份备份再删，内置的拒绝 */
+const removed = await action({ action: 'deleteSkill', name: 'with-desc' })
+check('能删用户 skill', removed.ok === true && !fs.existsSync(path.join(SANDBOX, 'skills', 'with-desc')), removed.error)
+check('删前留了整份备份', !!removed.backup && fs.existsSync(path.join(removed.backup, 'SKILL.md')), removed.backup)
+check(
+  '备份落在数据目录下，不跟着 skill 一起没',
+  String(removed.backup).startsWith(path.join(SANDBOX, 'tools', 'wrongbook')),
+  String(removed.backup),
+)
+check('删完就不在列表里了', !(await call('/dsh-wrongbook/skills', 'GET')).body.includes('with-desc'))
+check('内置 skill 不许删', (await action({ action: 'deleteSkill', name: 'builtin-x' })).ok === false)
+check('内置目录没被动过', fs.existsSync(path.join(BUILTIN_DIR, 'builtin-x', 'SKILL.md')))
+check('删不存在的拒绝', (await action({ action: 'deleteSkill', name: 'nope-nope' })).ok === false)
+check('名字带路径拒绝', (await action({ action: 'deleteSkill', name: '../evil' })).ok === false)
 await action({ action: 'setBackupDir', dir: '' })
 
 /* 目录浏览：面板里「选择文件夹」的后台 */
