@@ -61,6 +61,12 @@ if (promptSection) {
   check('提示段要求归档后回报「已归档」', promptText.includes('已归档到错题库'))
   check('提示段点名两个工具', promptText.includes('wrongbook_lookup') && promptText.includes('wrongbook_record'))
   check('提示段禁止再写进 md 文件', promptText.includes('不要再把错题写进 md'))
+  check('提示段把转 MVU 纳入必查场景', promptText.includes('转 MVU 版'))
+  check(
+    '提示段点出脚本被转换清空后不会自己回来',
+    promptText.includes('被转换清空之后不会自己回来'),
+    promptText.includes('差异判定') ? 'ok' : '缺差异判定',
+  )
   check('提示段顺序值不与别家撞车', promptSection.order === 5100, String(promptSection.order))
 }
 
