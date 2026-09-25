@@ -609,7 +609,7 @@ check('写出来的是条目正文', refluxText.includes(`### ${firstEntry.title
 check('带上分类与状态', refluxText.includes('错题库回流：') && refluxText.includes('·'), refluxText.split('\n').find((l) => l.startsWith('>')) || '')
 check('有现象就写进现象', !firstEntry.symptom || refluxText.includes(firstEntry.symptom))
 check('有修法就写进修法', !firstEntry.fix || refluxText.includes(firstEntry.fix))
-check('开头写清只增不改', refluxText.includes('只增不改'))
+check('开头写清哪些段落会被保护', refluxText.includes('手工改过的段落不会再被覆盖'))
 
 const reflux2 = await action({ action: 'refluxToSkill', skill: 'my-notes', ids: [firstId] })
 check('同名条目不会写第二遍', reflux2.written === 0 && reflux2.skipped === 1, JSON.stringify(reflux2))
@@ -680,7 +680,7 @@ check('打开时把已有条目一次补齐', missing.length === 0, missing.leng
 
 await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '自动同步用例' } })
 check('记一条新错题就自动跟进去', fs.readFileSync(refluxFile, 'utf8').includes('自动同步用例'), '没写进去')
-check('自动同步是追加不是重写', fs.readFileSync(refluxFile, 'utf8').includes('只增不改'), '文件头没了')
+check('自动同步没把文件头冲掉', fs.readFileSync(refluxFile, 'utf8').includes('dsh-wrongbook 从错题库回流而来'), '文件头没了')
 
 const withAuto = await state()
 check(
@@ -724,6 +724,48 @@ await action({ action: 'setAutoReflux', skill: '' })
 const noSync = await recordTool.execute({ card: 'new-notes', title: '回执断言用例（没开同步）', scope: '工具链' })
 check('没开同步时回执明说', noSync.text.includes('自动同步没开'), noSync.text.split('\n')[1])
 check('没开同步时仍报出归档结果', noSync.text.includes('已归档到错题库：'), noSync.text.slice(0, 40))
+/*
+ * 回流现在会跟着错题库更新，但有个前提：只改「我们自己写的、且没人动过」的段落。
+ * 手工改过的一律绕开 —— 否则每次同步都会把你改的东西顶掉，改一次白改一次。
+ */
+await action({ action: 'createSkill', name: 'sync-notes', description: '同步行为用' })
+const mk = async (title, symptom) =>
+  (await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title, symptom } })).entry
+const sA = await mk('同步甲', '现象甲')
+const sB = await mk('同步乙', '现象乙')
+const syncIds = [sA.id, sB.id]
+const syncFile = path.join(SANDBOX, 'skills', 'sync-notes', 'references', '错题库回流.md')
+
+const first = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: syncIds })
+check('首次回流写入两条', first.written === 2 && first.total === 2, JSON.stringify(first).slice(0, 80))
+check('每条下面盖了标记', (fs.readFileSync(syncFile, 'utf8').match(/^<!-- wrongbook:/gm) || []).length === 2, String((fs.readFileSync(syncFile, 'utf8').match(/^<!-- wrongbook:/gm) || []).length))
+
+const again = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: syncIds })
+check('内容没变就一个字不动', again.written === 0 && again.updated === 0 && again.unchanged === 2, JSON.stringify(again).slice(0, 80))
+check('字节数也没变', again.bytes === first.bytes, `${first.bytes} → ${again.bytes}`)
+
+await action({ action: 'updateEntry', id: sA.id, patch: { status: 'fixed' } })
+const bumped = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: syncIds })
+check('方案改了状态，段落原地更新', bumped.updated === 1 && bumped.written === 0, JSON.stringify(bumped).slice(0, 80))
+check('文件里的状态跟着变', /已修复/.test(fs.readFileSync(syncFile, 'utf8')), '')
+
+fs.writeFileSync(syncFile, fs.readFileSync(syncFile, 'utf8').replace('现象甲', '现象甲（我改的）'), 'utf8')
+await action({ action: 'updateEntry', id: sA.id, patch: { status: 'watch' } })
+const guarded = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: syncIds })
+check('手工改过的段落被跳过', guarded.editedByHand === 1 && guarded.updated === 0, JSON.stringify(guarded).slice(0, 80))
+check('手工改的内容还在', fs.readFileSync(syncFile, 'utf8').includes('现象甲（我改的）'))
+check('同文件里没被改的那条照常更新', fs.readFileSync(syncFile, 'utf8').includes('同步乙'))
+
+// 条目正文里出现 ### 小标题时，不能把段落切坏（修法里贴 markdown 很常见）
+const sC = await mk('带小标题的条目', '现象里有个小标题：\n\n### 小标题\n\n这是正文')
+const withSub = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: [sC.id] })
+check(
+  '正文含 ### 也不影响条数统计',
+  withSub.written === 1 && withSub.total === 3,
+  `written=${withSub.written} updated=${withSub.updated} unchanged=${withSub.unchanged} total=${withSub.total}`,
+)
+const settle = await action({ action: 'refluxToSkill', skill: 'sync-notes', ids: [sC.id] })
+check('正文含 ### 的条目也能识别成"没变"', settle.unchanged === 1 && settle.written === 0, JSON.stringify(settle).slice(0, 80))
 const sizeBefore = fs.readFileSync(refluxFile, 'utf8').length
 await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '关掉之后不该再出现' } })
 check(
