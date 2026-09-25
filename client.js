@@ -138,6 +138,17 @@ window.__ModuleLoader__.load({
       'reflux.done': '已写入 {n} 条到 {file}（跳过 {m} 条，文件里已有同名）',
       'reflux.doneAllSkip': '这 {n} 条都已经在 {file} 里了，没有需要写的。',
       'reflux.created': '已建好 skill「{name}」',
+      'reflux.sample': '示例',
+      'reflux.sampleTitle': '不知道怎么写？点一下，按当前范围和错题库里的实际条目算一句出来，可以直接用或改。',
+      'reflux.skillEntries': '{n} 条',
+      'reflux.deleteSkill': '删除这个 skill',
+      'reflux.deleted': '已删掉「{name}」，删前整份备份在 {backup}',
+      'reflux.refs': '参考资料',
+      'reflux.noRefs': '（还没回流过东西）',
+      'reflux.noDesc': '（这个 skill 没写简介 —— 没有简介它就很难被自动想起来）',
+      'reflux.cancelCreate': '收起',
+      'reflux.newSkill': '新建一个',
+      'reflux.panelHint': '回流只写你自己的 skill：内置的在程序目录里，Tavern 更新会整份覆盖。',
       'browse.title': '选择文件夹',
       'browse.go': '转到',
       'browse.drives': '驱动器',
@@ -322,6 +333,17 @@ window.__ModuleLoader__.load({
       'reflux.done': 'Wrote {n} entries into {file} ({m} skipped, already present)',
       'reflux.doneAllSkip': 'All {n} entries are already in {file}; nothing to write.',
       'reflux.created': 'Created skill "{name}"',
+      'reflux.sample': 'Example',
+      'reflux.sampleTitle': 'Not sure what to write? Click to have one computed from the current scope and the actual ledger entries — use it as is or edit it.',
+      'reflux.skillEntries': '{n} entries',
+      'reflux.deleteSkill': 'Delete this skill',
+      'reflux.deleted': 'Deleted "{name}"; a full copy was kept at {backup}',
+      'reflux.refs': 'References',
+      'reflux.noRefs': '(nothing refluxed yet)',
+      'reflux.noDesc': '(no description — without one it is rarely recalled)',
+      'reflux.cancelCreate': 'Collapse',
+      'reflux.newSkill': 'New one',
+      'reflux.panelHint': 'Reflux only writes your own skills: built-ins live in the program directory and an update replaces them whole.',
       'browse.go': 'Go',
       'browse.drives': 'Drives',
       'browse.up': 'Up one level',
@@ -463,6 +485,7 @@ window.__ModuleLoader__.load({
       '.dwb-msg.ok{border-color:var(--dsw-alias-state-success-primary)}',
       '.dwb-msg.bad{border-color:var(--dsw-alias-state-error-primary)}',
       '.dwb-pre{margin:6px 0 0;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}',
+      '.dwb-note{display:flex;flex-direction:column;gap:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:6px 8px;background:var(--dsw-alias-bg-layer-2)}',
       '.dwb-log{font-family:ui-monospace,Consolas,monospace;font-size:11px;max-height:132px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
       '.dwb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       '.dwb-field{display:flex;flex-direction:column;gap:3px}',
@@ -758,10 +781,10 @@ window.__ModuleLoader__.load({
      * 只列用户自己的 skill 能选；内置那些照实显示但写不了 —— 它们在程序目录里，
      * 下一次 Tavern 更新会整份覆盖，与其让人以为写成功了，不如当场说清。
      */
-    function RefluxModal({ state, entries, selectedKey, onChange, onClose, onWrite, onCreate }) {
+    function RefluxModal({ state, entries, selectedKey, onChange, onClose, onWrite, onCreate, onDelete, onSample }) {
       const skills = state.skills || []
       const mine = skills.filter((s) => !s.builtin)
-      const builtins = skills.filter((s) => s.builtin)
+      const current = mine.find((s) => s.name === state.skill) || null
       const count =
         state.scope === 'card'
           ? entries.filter((e) => e.cardKey === selectedKey).length
@@ -789,41 +812,107 @@ window.__ModuleLoader__.load({
           ),
           h('div', { className: 'dwb-sub' }, t('reflux.hint')),
 
-          h('div', { className: 'dwb-sub' }, t('reflux.skill')),
-          state.busy && !skills.length
-            ? h('div', { className: 'dwb-sub' }, t('scripts.loading'))
-            : mine.length
-              ? h(
-                  'select',
-                  { className: 'dwb-select', value: state.skill, onChange: (ev) => onChange({ skill: ev.target.value }) },
-                  mine.map((s) => h('option', { key: s.name, value: s.name }, s.name)),
-                )
-              : h('div', { className: 'dwb-sub' }, t('reflux.noSkill')),
-
-          // 顺序是刻意的：名字 → 简介 → 按钮。按钮原来夹在两者中间，
-          // 填完名字顺手就点了，根本没机会填简介 —— 而简介才是决定它会不会被加载的那句。
-          h('input', {
-            className: 'dwb-input',
-            placeholder: t('reflux.createHint'),
-            value: state.newName,
-            onChange: (ev) => onChange({ newName: ev.target.value }),
-          }),
-          h('input', {
-            className: 'dwb-input',
-            placeholder: t('reflux.skillDescHint'),
-            value: state.newDesc || '',
-            onChange: (ev) => onChange({ newDesc: ev.target.value }),
-          }),
+          // 选目标和新建是两件不同的事，原来混在一起：那对输入框看着像是
+          // "当前选中 skill 的简介"，切一下下拉它们还是空的，像坏了。
+          // 现在新建归到开关后面，选中态只显示那个 skill 自己的信息。
           h(
             'div',
             { className: 'dwb-row' },
-            h('span', { className: 'dwb-sub dwb-grow' }, state.newName ? '' : t('reflux.createNeedsName')),
+            h('span', { className: 'dwb-sub dwb-grow' }, t('reflux.skill')),
             h(
               'button',
-              { type: 'button', className: 'dwb-btn ghost', disabled: state.busy || !state.newName, onClick: onCreate },
-              t('reflux.create'),
+              {
+                type: 'button',
+                className: `dwb-btn tiny${state.creating ? ' primary' : ' ghost'}`,
+                onClick: () => onChange({ creating: !state.creating, confirmDelete: '' }),
+              },
+              state.creating ? t('reflux.cancelCreate') : `＋ ${t('reflux.newSkill')}`,
             ),
           ),
+
+          state.creating
+            ? null
+            : state.busy && !skills.length
+              ? h('div', { className: 'dwb-sub' }, t('scripts.loading'))
+              : mine.length
+                ? h(
+                    'select',
+                    { className: 'dwb-select', value: state.skill, onChange: (ev) => onChange({ skill: ev.target.value }) },
+                    mine.map((s) => h('option', { key: s.name, value: s.name }, s.name)),
+                  )
+                : h('div', { className: 'dwb-sub' }, t('reflux.noSkill')),
+
+          !state.creating && current
+            ? h(
+                'div',
+                { className: 'dwb-note' },
+                h('div', { className: 'dwb-sub' }, current.description || t('reflux.noDesc')),
+                h(
+                  'div',
+                  { className: 'dwb-sub' },
+                  `${t('reflux.refs')}：${(current.references || []).join('、') || t('reflux.noRefs')} · ${t('reflux.skillEntries').replace('{n}', current.entries || 0)}`,
+                ),
+              )
+            : null,
+
+          !state.creating && current
+            ? h(
+                'div',
+                { className: 'dwb-row' },
+                h('span', { className: 'dwb-grow' }),
+                h(ConfirmButton, {
+                  label: t('reflux.deleteSkill'),
+                  armed: state.confirmDelete === current.name,
+                  onArm: () => onChange({ confirmDelete: current.name }),
+                  onCancel: () => onChange({ confirmDelete: '' }),
+                  onConfirm: onDelete,
+                }),
+              )
+            : null,
+
+          state.creating
+            ? h(
+                Fragment,
+                null,
+                h('input', {
+                  className: 'dwb-input',
+                  placeholder: t('reflux.createHint'),
+                  value: state.newName,
+                  onChange: (ev) => onChange({ newName: ev.target.value }),
+                }),
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('input', {
+                    className: 'dwb-input dwb-grow',
+                    placeholder: t('reflux.skillDescHint'),
+                    value: state.newDesc || '',
+                    onChange: (ev) => onChange({ newDesc: ev.target.value }),
+                  }),
+                  h('button', {
+                    type: 'button',
+                    className: 'dwb-btn ghost',
+                    title: t('reflux.sampleTitle'),
+                    onClick: onSample,
+                  }, t('reflux.sample')),
+                ),
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('span', { className: 'dwb-sub dwb-grow' }, state.newName ? '' : t('reflux.createNeedsName')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dwb-btn ghost',
+                      disabled: state.busy || !state.newName,
+                      onClick: onCreate,
+                    },
+                    t('reflux.create'),
+                  ),
+                ),
+              )
+            : null,
 
           h('div', { className: 'dwb-sub' }, t('reflux.file')),
           h('input', {
@@ -852,16 +941,6 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwb-sub' }, t('reflux.plan').replace('{n}', count)),
           ),
 
-          builtins.length
-            ? h(
-                'div',
-                { className: 'dwb-sub' },
-                `${t('reflux.builtinWarn')}（${builtins
-                  .slice(0, 4)
-                  .map((s) => s.name)
-                  .join('、')} 等 ${builtins.length} 个）`,
-              )
-            : null,
           state.message ? h('div', { className: 'dwb-msg' }, state.message) : null,
 
           h(
@@ -874,7 +953,7 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'dwb-btn primary',
-                disabled: state.busy || !state.skill || !count,
+                disabled: state.busy || state.creating || !state.skill || !count,
                 onClick: onWrite,
               },
               t('reflux.write'),
@@ -1545,6 +1624,8 @@ window.__ModuleLoader__.load({
           message: '',
           newName: '',
           newDesc: '',
+          creating: false,
+          confirmDelete: '',
         })
         fetch(`${BASE}/skills`)
           .then((res) => res.json())
@@ -1580,9 +1661,80 @@ window.__ModuleLoader__.load({
                   ...prev,
                   busy: false,
                   newName: '',
+                  // 建完就把新建区收起来：留着展开的话，手一快就会连建好几个空壳
+                  // （这会已经有过两回）。
+                  creating: false,
                   skill: name,
                   message: t('reflux.created').replace('{name}', name),
-                  skills: (prev.skills || []).concat([{ name, builtin: false, references: [], description: '' }]),
+                  skills: (prev.skills || []).concat([{ name, builtin: false, references: [], description: '', entries: 0 }]),
+                }
+              : prev,
+          )
+        } catch (e) {
+          setReflux((prev) => (prev ? { ...prev, busy: false, message: String((e && e.message) || e) } : prev))
+        }
+      }
+
+      /**
+       * 按当前范围和错题库实况生成一句简介。
+       *
+       * 原来只塞一个带尖括号的模板 —— 等于没帮上忙：写的人还是不知道自己该填什么。
+       * 这里把它算成真实的：多少条、覆盖哪些范围、涉及哪些分类，直接能当简介用。
+       */
+      const buildSampleDesc = () => {
+        const picked = entriesInScope(reflux.scope)
+        if (!picked.length) return ''
+        const tally = {}
+        for (const entry of picked) tally[entry.scope] = (tally[entry.scope] || 0) + 1
+        const scopes = Object.keys(tally)
+          .sort((a, b) => tally[b] - tally[a])
+          .slice(0, 5)
+          .join('、')
+        const names = [...new Set(picked.map((e) => e.cardKey))].map((key) => {
+          const found = cards.find((c) => c.key === key)
+          return found ? found.name : key
+        })
+        const head = names.slice(0, 5).join('、')
+        const tail = names.length > 5 ? ` 等 ${names.length} 处` : ''
+        const n = picked.length
+
+        if (reflux.scope === 'card') {
+          return `${names[0] || '这张卡'} 的已解决故障：${n} 条（${scopes}）。用户调试这张卡、或排查同类异常时，先翻一遍 —— 每条含现象、根因与修法。`
+        }
+        if (reflux.scope === 'active') {
+          return `待解决的故障：${n} 条，涉及 ${head}${tail}，范围集中在 ${scopes}。排查这些问题、或遇到同类症状时先看这里 —— 每条含现象、根因与待验证的修法。`
+        }
+        return `已解决故障库：DSH Tavern 调试中踩过的 ${n} 个坑（${scopes}），涉及 ${head}${tail}。用户排查卡片异常、转 MVU、或调试插件与宿主时，先翻一遍看有没有同一类 —— 每条含现象、根因、修法与实测证据。`
+      }
+
+      /** 把算出来的简介塞进输入框；算不出来（没条目）就维持原样。 */
+      const fillSampleDesc = () =>
+        setReflux((prev) => {
+          if (!prev) return prev
+          const text = buildSampleDesc()
+          return text ? { ...prev, newDesc: text } : prev
+        })
+
+      const deleteRefluxSkill = async () => {
+        const name = reflux.skill
+        if (!name) return
+        setReflux({ ...reflux, busy: true, message: '', confirmDelete: '' })
+        try {
+          const res = await apiPost({ action: 'deleteSkill', name })
+          if (!res || res.ok === false) {
+            setReflux((prev) => (prev ? { ...prev, busy: false, message: (res && res.error) || '' } : prev))
+            return
+          }
+          const rest = (reflux.skills || []).filter((s) => s.name !== name)
+          const next = rest.filter((s) => !s.builtin)[0]
+          setReflux((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  busy: false,
+                  skills: rest,
+                  skill: next ? next.name : '',
+                  message: t('reflux.deleted').replace('{name}', name).replace('{backup}', res.backup || ''),
                 }
               : prev,
           )
@@ -1658,7 +1810,7 @@ window.__ModuleLoader__.load({
             ? t('scripts.hint')
             : isOther
               ? t('bucket.otherHint')
-              : `${t('order.hint')} · ${selfHint}`,
+              : `${t('order.hint')} · ${selfHint} · ${t('reflux.panelHint')}`,
         ),
         // 工具条：跨卡查询与筛选。状态/范围筛选同时作用于本卡列表和跨卡检索。
         h(
@@ -1698,6 +1850,8 @@ window.__ModuleLoader__.load({
               onClose: () => setReflux(null),
               onWrite: doReflux,
               onCreate: createRefluxSkill,
+              onDelete: deleteRefluxSkill,
+              onSample: fillSampleDesc,
             })
           : null,
         editor

@@ -476,24 +476,70 @@ if (refluxBtn) {
     if (typeof node === 'object' && node.children) textsOf(node.children, acc)
     return acc
   }
-  const refluxTexts = refluxNode ? textsOf(refluxNode.type(refluxNode.props)) : []
-  const refluxInputs = refluxNode ? findByClass(refluxNode.type(refluxNode.props), 'dwb-input') : []
+  const refluxBody = refluxNode ? refluxNode.type(refluxNode.props) : null
+  const refluxTexts = refluxBody ? textsOf(refluxBody) : []
+  const refluxInputs = refluxBody ? findByClass(refluxBody, 'dwb-input') : []
   check('回流弹窗打开', !!refluxNode, out.types.includes('RefluxModal') ? 'ok' : '没有弹窗')
-  check(
-    '弹窗能填新 skill 的简介',
-    refluxInputs.some((n) => String(n.props.placeholder || '').includes('Agent 靠这句')),
-    refluxInputs.map((n) => String(n.props.placeholder || '')).join(' / '),
-  )
   check('弹窗说明只增不改', refluxTexts.some((t) => t.includes('同名的不会重复写')), refluxTexts.slice(0, 4).join(' / '))
   check('弹窗列出用户 skill', refluxTexts.includes('my-notes'), refluxTexts.filter((t) => t.includes('notes')).join(' / '))
-  check(
-    '弹窗提示内置的写不了',
-    refluxTexts.some((t) => t.includes('内置 skill 在程序目录里')),
-    refluxTexts.filter((t) => t.includes('内置')).join(' / '),
-  )
   check('弹窗给出范围与条数', refluxTexts.some((t) => /将写入 \d+ 条/.test(t)), refluxTexts.filter((t) => /将写入/.test(t)).join(' / '))
   check('弹窗有写入按钮', refluxTexts.includes('写入'))
-  check('弹窗列的是用户 skill 不是内置的', !refluxTexts.includes('card-to-mvu') || refluxTexts.some((t) => t.includes('等 1 个')))
+
+  /* 选中态：显示的是这个 skill 自己的信息，不是一对给新建用的空输入框 */
+  check('选中态显示该 skill 的简介', refluxTexts.some((t) => t.includes('验收用')), refluxTexts.filter((t) => t.includes('验收')).join(' / '))
+  check('选中态显示参考资料', refluxTexts.some((t) => t.includes('参考资料')), refluxTexts.filter((t) => t.includes('资料')).join(' / '))
+  const delConfirm = findByType(refluxBody, 'ConfirmButton')[0]
+  check(
+    '选中态有删除入口',
+    !!delConfirm && String(delConfirm.props.label).includes('删除这个 skill'),
+    delConfirm ? String(delConfirm.props.label) : '没有删除按钮',
+  )
+  check(
+    '选中态不摆新建用的输入框',
+    !refluxInputs.some((n) => String(n.props.placeholder || '').includes('连字符')),
+    refluxInputs.map((n) => String(n.props.placeholder || '').slice(0, 16)).join(' / '),
+  )
+
+  /* 面板上就写明"只写自己的 skill"，不用点进来才知道 */
+  check(
+    '面板 hint 写明了回流范围',
+    out.texts.some((t) => t.includes('回流只写你自己的 skill')),
+    out.texts.filter((t) => t.includes('回流')).slice(0, 2).join(' / '),
+  )
+
+  /* 展开新建：名字、简介、示例三样都要有 */
+  const newBtn = findByClass(refluxBody, 'dwb-btn').find((n) => n.children.join('').includes('新建一个'))
+  check('有新建开关', !!newBtn)
+  if (newBtn) {
+    newBtn.props.onClick()
+    const grown = refluxNode.type(findByType(renderOnce(), 'RefluxModal')[0].props)
+    const grownTexts = textsOf(grown)
+    const grownInputs = findByClass(grown, 'dwb-input')
+    check(
+      '展开后有名字和简介两个输入框',
+      grownInputs.some((n) => String(n.props.placeholder || '').includes('连字符')) &&
+        grownInputs.some((n) => String(n.props.placeholder || '').includes('Agent 靠这句')),
+      grownInputs.map((n) => String(n.props.placeholder || '').slice(0, 14)).join(' / '),
+    )
+    check('展开后有示例按钮', grownTexts.includes('示例'), grownTexts.filter((t) => t.includes('示例')).join(' / '))
+    check('展开后仍然说明名字必填', grownTexts.some((t) => t.includes('名字必填')), grownTexts.filter((t) => t.includes('必填')).join(' / '))
+
+    const sampleBtn = findByClass(grown, 'dwb-btn').find((n) => n.children.join('') === '示例')
+    check('示例按钮带说明', !!sampleBtn && String(sampleBtn.props.title || '').includes('算一句出来'), sampleBtn ? String(sampleBtn.props.title).slice(0, 40) : '没有 title')
+    if (sampleBtn) {
+      sampleBtn.props.onClick()
+      const filled = refluxNode.type(findByType(renderOnce(), 'RefluxModal')[0].props)
+      const descBox = findByClass(filled, 'dwb-input').find((n) => String(n.props.placeholder || '').includes('Agent 靠这句'))
+      const got = descBox ? String(descBox.props.value) : ''
+      check('示例按钮算出一句真简介', /已解决故障库|待解决的故障|的已解决故障/.test(got), got.slice(0, 60))
+      check('算出来的简介带上了真实条目数', /踩过的 \d+ 个坑|：\d+ 条/.test(got), got.slice(0, 60))
+      check('算出来的简介没留尖括号', !got.includes('<') && !got.includes('>'), got.slice(0, 60))
+    }
+    const collapseBtn = findByClass(refluxNode.type(findByType(renderOnce(), 'RefluxModal')[0].props), 'dwb-btn').find((n) =>
+      n.children.join('').includes('收起'),
+    )
+    if (collapseBtn) collapseBtn.props.onClick()
+  }
   // 关掉，别影响后面的断言。
   findByClass(refluxTree, 'dwb-btn')
     .filter((n) => n.children.join('') === '关闭')
