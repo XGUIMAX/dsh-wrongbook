@@ -149,6 +149,16 @@ window.__ModuleLoader__.load({
       'reflux.cancelCreate': '收起',
       'reflux.newSkill': '新建一个',
       'reflux.panelHint': '回流只写你自己的 skill：内置的在程序目录里，Tavern 更新会整份覆盖。',
+      'reflux.auto': '以后新条目自动同步到这里',
+      'reflux.autoOn': '已打开自动同步 → {name}；每记一条新错题就顺手跟一次。',
+      'reflux.autoOff': '已关掉自动同步。',
+      'reflux.autoLast': '上次自动同步 {when}，写入 {n} 条',
+      'reflux.autoIdle': '还没同步过',
+      'reflux.autoFailed': '上次自动同步失败：{err}',
+      'reflux.buttonAuto': '回流到 Skill',
+      'reflux.autoBar': '自动同步已开 → {name}（上次 {when}，写入 {n} 条）',
+      'reflux.autoBarIdle': '自动同步已开 → {name}（还没跑过）',
+      'reflux.autoBarFailed': '自动同步已开 → {name}，但上次失败了：{err}',
       'browse.title': '选择文件夹',
       'browse.go': '转到',
       'browse.drives': '驱动器',
@@ -344,6 +354,16 @@ window.__ModuleLoader__.load({
       'reflux.cancelCreate': 'Collapse',
       'reflux.newSkill': 'New one',
       'reflux.panelHint': 'Reflux only writes your own skills: built-ins live in the program directory and an update replaces them whole.',
+      'reflux.auto': 'Keep new entries synced here automatically',
+      'reflux.autoOn': 'Auto-sync is on → {name}; every new entry follows along.',
+      'reflux.autoOff': 'Auto-sync is off.',
+      'reflux.autoLast': 'Last auto-sync {when}, wrote {n}',
+      'reflux.autoIdle': 'not synced yet',
+      'reflux.autoFailed': 'Last auto-sync failed: {err}',
+      'reflux.buttonAuto': 'Reflux to skill',
+      'reflux.autoBar': 'Auto-sync on → {name} (last {when}, wrote {n})',
+      'reflux.autoBarIdle': 'Auto-sync on → {name} (has not run yet)',
+      'reflux.autoBarFailed': 'Auto-sync on → {name}, but the last run failed: {err}',
       'browse.go': 'Go',
       'browse.drives': 'Drives',
       'browse.up': 'Up one level',
@@ -486,6 +506,9 @@ window.__ModuleLoader__.load({
       '.dwb-msg.bad{border-color:var(--dsw-alias-state-error-primary)}',
       '.dwb-pre{margin:6px 0 0;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}',
       '.dwb-note{display:flex;flex-direction:column;gap:3px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:6px 8px;background:var(--dsw-alias-bg-layer-2)}',
+      '.dwb-pick{cursor:pointer;gap:6px}',
+      '.dwb-pick input[type=checkbox]{flex:none;margin:0}',
+      '.dwb-live{color:var(--dsw-alias-state-success-primary);font-size:9px;line-height:1;margin-right:3px}',
       '.dwb-log{font-family:ui-monospace,Consolas,monospace;font-size:11px;max-height:132px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
       '.dwb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       '.dwb-field{display:flex;flex-direction:column;gap:3px}',
@@ -781,7 +804,7 @@ window.__ModuleLoader__.load({
      * 只列用户自己的 skill 能选；内置那些照实显示但写不了 —— 它们在程序目录里，
      * 下一次 Tavern 更新会整份覆盖，与其让人以为写成功了，不如当场说清。
      */
-    function RefluxModal({ state, entries, selectedKey, onChange, onClose, onWrite, onCreate, onDelete, onSample }) {
+    function RefluxModal({ state, entries, selectedKey, onChange, onClose, onWrite, onCreate, onDelete, onSample, onToggleAuto }) {
       const skills = state.skills || []
       const mine = skills.filter((s) => !s.builtin)
       const current = mine.find((s) => s.name === state.skill) || null
@@ -852,6 +875,34 @@ window.__ModuleLoader__.load({
                   { className: 'dwb-sub' },
                   `${t('reflux.refs')}：${(current.references || []).join('、') || t('reflux.noRefs')} · ${t('reflux.skillEntries').replace('{n}', current.entries || 0)}`,
                 ),
+              )
+            : null,
+
+          !state.creating && current
+            ? h(
+                'label',
+                { className: 'dwb-row dwb-pick' },
+                h('input', {
+                  type: 'checkbox',
+                  className: 'dwb-check',
+                  checked: state.autoSkill === current.name,
+                  onChange: () => onToggleAuto(state.autoSkill === current.name ? '' : current.name),
+                }),
+                h('span', { className: 'dwb-sub dwb-grow' }, t('reflux.auto')),
+              )
+            : null,
+
+          !state.creating && state.autoSkill
+            ? h(
+                'div',
+                { className: 'dwb-sub' },
+                state.autoLast && state.autoLast.error
+                  ? t('reflux.autoFailed').replace('{err}', state.autoLast.error)
+                  : state.autoLast && state.autoLast.at
+                    ? t('reflux.autoLast')
+                        .replace('{when}', String(state.autoLast.at).slice(0, 16).replace('T', ' '))
+                        .replace('{n}', state.autoLast.written || 0)
+                    : t('reflux.autoIdle'),
               )
             : null,
 
@@ -1626,6 +1677,8 @@ window.__ModuleLoader__.load({
           newDesc: '',
           creating: false,
           confirmDelete: '',
+          autoSkill: (data.config && data.config.autoReflux && data.config.autoReflux.skill) || '',
+          autoLast: (data.config && data.config.autoRefluxLast) || null,
         })
         fetch(`${BASE}/skills`)
           .then((res) => res.json())
@@ -1639,6 +1692,27 @@ window.__ModuleLoader__.load({
           .catch((e) => {
             setReflux((prev) => (prev ? { ...prev, skills: [], busy: false, message: String((e && e.message) || e) } : prev))
           })
+      }
+
+      /** 重新拉一遍 skill 列表；新建或删除之后用，免得本地拼出来的对象缺字段。 */
+      const refreshSkills = async (selectName) => {
+        try {
+          const res = await fetch(`${BASE}/skills`)
+          const body = await res.json()
+          const list = (body && body.skills) || []
+          const mine = list.filter((s) => !s.builtin)
+          setReflux((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  skills: list,
+                  skill: selectName || prev.skill || (mine[0] ? mine[0].name : ''),
+                }
+              : prev,
+          )
+        } catch {
+          /* 拉不到就保持现状，别把已经能用的界面清空 */
+        }
       }
 
       const createRefluxSkill = async () => {
@@ -1664,12 +1738,13 @@ window.__ModuleLoader__.load({
                   // 建完就把新建区收起来：留着展开的话，手一快就会连建好几个空壳
                   // （这会已经有过两回）。
                   creating: false,
-                  skill: name,
                   message: t('reflux.created').replace('{name}', name),
-                  skills: (prev.skills || []).concat([{ name, builtin: false, references: [], description: '', entries: 0 }]),
                 }
               : prev,
           )
+          // 本地拼一个对象塞进列表的话，简介和条目数都是残缺的 ——
+          // 看着就像「新建完没简介，退出去重进才有」。所以重新拉一遍。
+          await refreshSkills(name)
         } catch (e) {
           setReflux((prev) => (prev ? { ...prev, busy: false, message: String((e && e.message) || e) } : prev))
         }
@@ -1738,8 +1813,32 @@ window.__ModuleLoader__.load({
                 }
               : prev,
           )
+          await refreshSkills(next ? next.name : '')
         } catch (e) {
           setReflux((prev) => (prev ? { ...prev, busy: false, message: String((e && e.message) || e) } : prev))
+        }
+      }
+
+      const toggleAutoReflux = async (skill) => {
+        try {
+          const res = await apiPost({ action: 'setAutoReflux', skill, file: reflux.file })
+          if (!res || res.ok === false) {
+            setReflux((prev) => (prev ? { ...prev, message: (res && res.error) || '' } : prev))
+            return
+          }
+          setReflux((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  autoSkill: skill,
+                  autoLast: skill ? { at: new Date().toISOString(), written: res.synced || 0 } : null,
+                  message: skill ? t('reflux.autoOn').replace('{name}', skill) : t('reflux.autoOff'),
+                }
+              : prev,
+          )
+          await load()
+        } catch (e) {
+          setReflux((prev) => (prev ? { ...prev, message: String((e && e.message) || e) } : prev))
         }
       }
 
@@ -1792,6 +1891,26 @@ window.__ModuleLoader__.load({
         return h('span', { className: 'dwb-chip' }, t('ver.unknown'))
       }
 
+      /**
+       * 自动同步到底有没有在跑 —— 面板上要能一眼看到，不用点进弹窗。
+       *
+       * 光写"已开"不够：开了之后不生效才是真正会出问题的情况。所以把「上次什么时候跑的、
+       * 写进去几条」摆在按钮旁边 —— 记完一条错题回来，时间戳变了，就知道它真的在工作。
+       */
+      const autoReflux = (data.config && data.config.autoReflux) || null
+      const autoBar = () => {
+        if (!autoReflux) return ''
+        const last = (data.config && data.config.autoRefluxLast) || null
+        if (!last) return t('reflux.autoBarIdle').replace('{name}', autoReflux.skill)
+        if (last.error) {
+          return t('reflux.autoBarFailed').replace('{name}', autoReflux.skill).replace('{err}', last.error)
+        }
+        return t('reflux.autoBar')
+          .replace('{name}', autoReflux.skill)
+          .replace('{when}', String(last.at || '').slice(0, 16).replace('T', ' '))
+          .replace('{n}', last.written || 0)
+      }
+
       const selfHint = plugin.changedLocally
         ? t('ver.hint.changed').replace('{files}', (plugin.files || []).map((f) => f.rel).join(', '))
         : data.config && data.config.remoteUrl
@@ -1810,7 +1929,7 @@ window.__ModuleLoader__.load({
             ? t('scripts.hint')
             : isOther
               ? t('bucket.otherHint')
-              : `${t('order.hint')} · ${selfHint} · ${t('reflux.panelHint')}`,
+              : `${t('order.hint')} · ${selfHint} · ${t('reflux.panelHint')}${autoReflux ? ` · ${autoBar()}` : ''}`,
         ),
         // 工具条：跨卡查询与筛选。状态/范围筛选同时作用于本卡列表和跨卡检索。
         h(
@@ -1838,7 +1957,12 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dwb-grow' }),
           h('button', { type: 'button', className: 'dwb-btn primary', onClick: () => openEditor(null) }, t('btn.add')),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: rescan, disabled: busy }, t('btn.rescan')),
-          h('button', { type: 'button', className: 'dwb-btn ghost', onClick: openReflux, disabled: busy }, t('reflux.open')),
+          h(
+            'button',
+            { type: 'button', className: 'dwb-btn ghost', onClick: openReflux, disabled: busy },
+            autoReflux ? h('span', { className: 'dwb-live', title: autoBar() }, '●') : null,
+            t('reflux.open'),
+          ),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => void load() }, t('btn.reload')),
         ),
         reflux
@@ -1852,6 +1976,7 @@ window.__ModuleLoader__.load({
               onCreate: createRefluxSkill,
               onDelete: deleteRefluxSkill,
               onSample: fillSampleDesc,
+              onToggleAuto: toggleAutoReflux,
             })
           : null,
         editor

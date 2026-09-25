@@ -623,6 +623,53 @@ check('内置 skill 不许删', (await action({ action: 'deleteSkill', name: 'bu
 check('内置目录没被动过', fs.existsSync(path.join(BUILTIN_DIR, 'builtin-x', 'SKILL.md')))
 check('删不存在的拒绝', (await action({ action: 'deleteSkill', name: 'nope-nope' })).ok === false)
 check('名字带路径拒绝', (await action({ action: 'deleteSkill', name: '../evil' })).ok === false)
+
+/* 自动回流：配了目标之后，记错题就顺手同步一次 */
+
+const autoOn = await action({ action: 'setAutoReflux', skill: 'new-notes' })
+check(
+  '能打开自动同步',
+  autoOn.ok === true && autoOn.autoReflux && autoOn.autoReflux.skill === 'new-notes',
+  JSON.stringify(autoOn.autoReflux),
+)
+check('打开时先同步一次', typeof autoOn.synced === 'number', String(autoOn.synced))
+
+const refluxFile = path.join(SANDBOX, 'skills', 'new-notes', 'references', '错题库回流.md')
+check('打开时就写出了文件', fs.existsSync(refluxFile))
+// 按标题逐条核对，别去数 `### ` —— 条目正文里也可能有小标题，数出来的不是条数。
+const titles = (await state()).entries.map((e) => e.title)
+const textAtOn = fs.readFileSync(refluxFile, 'utf8')
+const missing = titles.filter((t) => !textAtOn.includes(`### ${t}`))
+check('打开时把已有条目一次补齐', missing.length === 0, missing.length ? `缺 ${missing.length} 条：${missing[0]}` : `${titles.length} 条都在`)
+
+await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '自动同步用例' } })
+check('记一条新错题就自动跟进去', fs.readFileSync(refluxFile, 'utf8').includes('自动同步用例'), '没写进去')
+check('自动同步是追加不是重写', fs.readFileSync(refluxFile, 'utf8').includes('只增不改'), '文件头没了')
+
+const withAuto = await state()
+check(
+  'state 带上自动同步目标',
+  !!withAuto.config.autoReflux && withAuto.config.autoReflux.skill === 'new-notes',
+  JSON.stringify(withAuto.config.autoReflux),
+)
+check(
+  'state 带上上次同步结果',
+  !!withAuto.config.autoRefluxLast && withAuto.config.autoRefluxLast.written >= 1,
+  JSON.stringify(withAuto.config.autoRefluxLast),
+)
+check('上次同步记录里没有错误', withAuto.config.autoRefluxLast.error === '', withAuto.config.autoRefluxLast.error)
+check('内置 skill 不能设为自动目标', (await action({ action: 'setAutoReflux', skill: 'builtin-x' })).ok === false)
+
+const autoOff = await action({ action: 'setAutoReflux', skill: '' })
+check('能关掉自动同步', autoOff.ok === true && autoOff.autoReflux === null, JSON.stringify(autoOff.autoReflux))
+const sizeBefore = fs.readFileSync(refluxFile, 'utf8').length
+await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '关掉之后不该再出现' } })
+check(
+  '关掉之后记错题就不再回写',
+  fs.readFileSync(refluxFile, 'utf8').length === sizeBefore &&
+    !fs.readFileSync(refluxFile, 'utf8').includes('关掉之后不该再出现'),
+)
+
 await action({ action: 'setBackupDir', dir: '' })
 
 /* 目录浏览：面板里「选择文件夹」的后台 */

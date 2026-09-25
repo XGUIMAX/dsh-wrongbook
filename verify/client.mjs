@@ -67,7 +67,11 @@ const STATE = {
     entries: 1,
     cards: 2,
   },
-  config: { remoteUrl: '' },
+  config: {
+    remoteUrl: '',
+    autoReflux: { skill: 'my-notes', file: 'references/错题库回流.md' },
+    autoRefluxLast: { at: '2026-09-23T10:00:00.000Z', written: 3, skipped: 0, file: '', error: '' },
+  },
   cards: [
     {
       key: 'cards/测试卡A.json',
@@ -453,8 +457,18 @@ check('数据目录显示', out.texts.some((t) => t.includes('tools\\wrongbook')
 check('EntryView 已渲染', out.types.includes('EntryView'))
 
 /* 回流到 Skill：按钮打开弹窗，内置 skill 在弹窗里被标成写不了 */
-const refluxBtn = findByClass(tree, 'dwb-btn').find((n) => n.children.join('') === '回流到 Skill')
+const refluxBtn = findByClass(tree, 'dwb-btn').find((n) => n.children.join('').includes('回流到 Skill'))
 check('错题页有回流按钮', !!refluxBtn)
+check(
+  '自动同步开着时按钮上有个点',
+  !!refluxBtn && refluxBtn.children.some((c) => c && c.props && c.props.className === 'dwb-live'),
+  refluxBtn ? refluxBtn.children.map((c) => (c && c.props ? c.props.className : String(c))).join(',') : '',
+)
+check(
+  '提示行写明自动同步跑到哪一步了',
+  out.texts.some((t) => t.includes('自动同步已开') && t.includes('写入')),
+  out.texts.filter((t) => t.includes('自动同步')).join(' / '),
+)
 if (refluxBtn) {
   refluxBtn.props.onClick()
   renderOnce()
@@ -498,6 +512,21 @@ if (refluxBtn) {
     '选中态不摆新建用的输入框',
     !refluxInputs.some((n) => String(n.props.placeholder || '').includes('连字符')),
     refluxInputs.map((n) => String(n.props.placeholder || '').slice(0, 16)).join(' / '),
+  )
+
+  /* 自动同步：开了之后记错题就顺手跟一次，这一栏要能看出来它开没开、上次跑成什么样 */
+  const autoBoxes = refluxBody ? findByClass(refluxBody, 'dwb-pick') : []
+  check('弹窗有自动同步开关', autoBoxes.length === 1, String(autoBoxes.length))
+  const checkboxes = refluxBody ? findByClass(refluxBody, 'dwb-check') : []
+  check(
+    '开关的选中态跟着配置走',
+    checkboxes.length === 1 && checkboxes[0].props.checked === true,
+    checkboxes.length ? String(checkboxes[0].props.checked) : '没有复选框',
+  )
+  check(
+    '显示上次同步的结果',
+    refluxTexts.some((t) => t.includes('上次自动同步')),
+    refluxTexts.filter((t) => t.includes('自动同步')).join(' / '),
   )
 
   /* 面板上就写明"只写自己的 skill"，不用点进来才知道 */
