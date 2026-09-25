@@ -599,6 +599,15 @@ check(
 check('重名拒绝', (await action({ action: 'createSkill', name: 'new-notes' })).ok === false)
 check('名字不合法拒绝', (await action({ action: 'createSkill', name: 'Bad Name' })).ok === false)
 check('新 skill 立刻能作为回流目标', (await action({ action: 'refluxToSkill', skill: 'new-notes', ids: [firstId] })).ok === true)
+
+/* 简介决定 Agent 会不会自动加载这个 skill，默认值不能是一句空话 */
+const defaultSkillText = fs.readFileSync(path.join(SANDBOX, 'skills', 'new-notes', 'SKILL.md'), 'utf8')
+check('默认简介写的是什么时候读它', defaultSkillText.includes('排查同类问题、动手之前先读一遍'), defaultSkillText.split('\n')[2])
+check('默认简介不重复 skill 名', !defaultSkillText.includes('new-notes：'), defaultSkillText.split('\n')[2])
+
+await action({ action: 'createSkill', name: 'with-desc', description: '排查某类问题时读一遍' })
+const withDesc = fs.readFileSync(path.join(SANDBOX, 'skills', 'with-desc', 'SKILL.md'), 'utf8')
+check('自己写的简介会进 frontmatter', withDesc.includes('description: "排查某类问题时读一遍"'), withDesc.split('\n')[2])
 await action({ action: 'setBackupDir', dir: '' })
 
 /* 目录浏览：面板里「选择文件夹」的后台 */

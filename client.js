@@ -132,6 +132,7 @@ window.__ModuleLoader__.load({
       'reflux.noSkill': '还没有自己的 skill —— 先建一个，回流才有落脚处。',
       'reflux.create': '新建 skill',
       'reflux.createHint': '小写字母、数字、连字符，例如 mvu-migration-notes',
+      'reflux.skillDescHint': '简介 —— 写清什么时候该读它，Agent 靠这句决定要不要自动加载',
       'reflux.write': '写入',
       'reflux.done': '已写入 {n} 条到 {file}（跳过 {m} 条，文件里已有同名）',
       'reflux.doneAllSkip': '这 {n} 条都已经在 {file} 里了，没有需要写的。',
@@ -314,6 +315,7 @@ window.__ModuleLoader__.load({
       'reflux.noSkill': 'No skill of your own yet — create one first, so the entries have somewhere to land.',
       'reflux.create': 'New skill',
       'reflux.createHint': 'lowercase letters, digits, hyphens, e.g. mvu-migration-notes',
+      'reflux.skillDescHint': 'Description — say when to read it; agents decide whether to load this skill from that line',
       'reflux.write': 'Write',
       'reflux.done': 'Wrote {n} entries into {file} ({m} skipped, already present)',
       'reflux.doneAllSkip': 'All {n} entries are already in {file}; nothing to write.',
@@ -811,6 +813,14 @@ window.__ModuleLoader__.load({
               t('reflux.create'),
             ),
           ),
+          // description 是 Agent 判断"要不要自动加载这个 skill"的唯一依据，
+          // 留空的话插件会给一句通用的，但写清场景才真正管用。
+          h('input', {
+            className: 'dwb-input',
+            placeholder: t('reflux.skillDescHint'),
+            value: state.newDesc || '',
+            onChange: (ev) => onChange({ newDesc: ev.target.value }),
+          }),
 
           h('div', { className: 'dwb-sub' }, t('reflux.file')),
           h('input', {
@@ -1523,7 +1533,16 @@ window.__ModuleLoader__.load({
        * 写了也会被下次更新整份覆盖，与其让人以为写成功了，不如当场说清。
        */
       const openReflux = () => {
-        setReflux({ skills: null, skill: '', file: 'references/错题库回流.md', scope: 'all', busy: true, message: '', newName: '' })
+        setReflux({
+          skills: null,
+          skill: '',
+          file: 'references/错题库回流.md',
+          scope: 'all',
+          busy: true,
+          message: '',
+          newName: '',
+          newDesc: '',
+        })
         fetch(`${BASE}/skills`)
           .then((res) => res.json())
           .then((body) => {
@@ -1543,7 +1562,11 @@ window.__ModuleLoader__.load({
         if (!name) return
         setReflux({ ...reflux, busy: true, message: '' })
         try {
-          const res = await apiPost({ action: 'createSkill', name })
+          const res = await apiPost({
+            action: 'createSkill',
+            name,
+            description: String(reflux.newDesc || '').trim(),
+          })
           if (!res || res.ok === false) {
             setReflux((prev) => (prev ? { ...prev, busy: false, message: (res && res.error) || '' } : prev))
             return

@@ -477,7 +477,13 @@ if (refluxBtn) {
     return acc
   }
   const refluxTexts = refluxNode ? textsOf(refluxNode.type(refluxNode.props)) : []
+  const refluxInputs = refluxNode ? findByClass(refluxNode.type(refluxNode.props), 'dwb-input') : []
   check('回流弹窗打开', !!refluxNode, out.types.includes('RefluxModal') ? 'ok' : '没有弹窗')
+  check(
+    '弹窗能填新 skill 的简介',
+    refluxInputs.some((n) => String(n.props.placeholder || '').includes('Agent 靠这句')),
+    refluxInputs.map((n) => String(n.props.placeholder || '')).join(' / '),
+  )
   check('弹窗说明只增不改', refluxTexts.some((t) => t.includes('同名的不会重复写')), refluxTexts.slice(0, 4).join(' / '))
   check('弹窗列出用户 skill', refluxTexts.includes('my-notes'), refluxTexts.filter((t) => t.includes('notes')).join(' / '))
   check(
