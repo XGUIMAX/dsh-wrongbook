@@ -356,6 +356,32 @@ const moved = await action({ action: 'moveEntry', id: moveSrc.entry.id, toCardKe
 check('moveEntry 落到目标分类', moved.ok === true && moved.entry.cardKey === 'cards/测试卡B.json', moved.entry && moved.entry.cardKey)
 check('moveEntry 不在原分类留副本', (await state()).entries.filter((e) => e.id === moveSrc.entry.id).length === 0)
 
+/* 卡消失之后，分类留不留，取决于它下面有没有东西 */
+
+const ghostPath = path.join(CARDS, '幽灵卡.json')
+fs.writeFileSync(ghostPath, '{}', 'utf8')
+check('新出现的卡会被扫出来', (await state()).cards.some((c) => c.key === 'cards/幽灵卡.json'))
+fs.unlinkSync(ghostPath)
+check('空记录的分类跟着卡一起消失', !(await state()).cards.some((c) => c.key === 'cards/幽灵卡.json'))
+
+const keeperPath = path.join(CARDS, '留有记录的卡.json')
+fs.writeFileSync(keeperPath, '{}', 'utf8')
+await state()
+await action({ action: 'addEntry', cardKey: 'cards/留有记录的卡.json', entry: { title: '这张卡上有结论' } })
+fs.unlinkSync(keeperPath)
+const keptView = await state()
+const kept = keptView.cards.find((c) => c.key === 'cards/留有记录的卡.json')
+check('有记录的分类标成已不在卡片目录', !!kept && kept.missing === true, kept ? String(kept.missing) : '分类没了')
+check('记录没有跟着丢', keptView.entries.some((e) => e.cardKey === 'cards/留有记录的卡.json'))
+
+const lifted = await action({ action: 'deleteBucket', key: 'cards/留有记录的卡.json' })
+check('missing 的卡片分类允许手动删除', lifted.ok === true, lifted.error)
+check(
+  '手动删掉后记录迁到兜底',
+  (await state()).entries.some((e) => e.title === '这张卡上有结论' && e.cardKey === s1.generalKey),
+)
+check('在册的卡片分类仍然拒绝删除', (await action({ action: 'deleteBucket', key: 'cards/测试卡A.json' })).ok === false)
+
 /* 备份的删除与清理 */
 const bk = await action({ action: 'backupNow' })
 check('backupNow 报告份数', bk.ok === true && bk.backups >= 1, String(bk.backups))

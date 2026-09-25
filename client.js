@@ -1327,7 +1327,7 @@ window.__ModuleLoader__.load({
                     t('btn.rename'),
                   )
                 : null,
-              isOther && currentCard && currentCard.key !== generalKey
+              currentCard && currentCard.key !== generalKey && (isOther || currentCard.missing)
                 ? h(ConfirmButton, {
                     label: t('btn.deleteBucket'),
                     armed: pending === `bucket:${currentCard.key}`,

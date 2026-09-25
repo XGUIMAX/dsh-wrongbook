@@ -100,6 +100,21 @@ const STATE = {
       count: { open: 0, watch: 0, fixed: 0, total: 0 },
     },
     {
+      key: 'cards/已删掉的卡.json',
+      group: 'card',
+      name: '已删掉的卡',
+      base: '已删掉的卡',
+      rel: 'cards/已删掉的卡.json',
+      abs: 'C:\\sandbox\\resources\\cards\\已删掉的卡.json',
+      kind: 'plain',
+      avatar: '',
+      pairKey: '',
+      note: '',
+      missing: true,
+      updatedAt: '2026-09-23T10:00:00.000Z',
+      count: { open: 0, watch: 0, fixed: 0, total: 0 },
+    },
+    {
       key: '__other_card-updater__',
       group: 'other',
       name: '卡片更新器',
@@ -340,12 +355,28 @@ check('自检结论显示', out.texts.includes('已是最新版'))
 check('数据目录显示', out.texts.some((t) => t.includes('tools\\wrongbook')))
 check('EntryView 已渲染', out.types.includes('EntryView'))
 const rows = findByType(tree, 'CardRow')
-check('人物卡错题页卡列表两项', rows.length === 2, rows.map((n) => n.props.card.name).join('|'))
-check('卡列表带名字', rows.map((n) => n.props.card.name).join('|') === '测试卡A|测试卡A MVU版本', rows.map((n) => n.props.card.name).join('|'))
-check('有图的卡走 img 分支', rows.map((n) => Boolean(n.props.card.avatar)).join(',') === 'true,false')
+check('卡列表三项', rows.length === 3, String(rows.length))
+check(
+  '人物卡错题页只列卡片分类',
+  rows.every((n) => n.props.card.group === 'card'),
+  rows.map((n) => `${n.props.card.name}[${n.props.card.group}]`).join('|'),
+)
+check(
+  '卡列表带名字',
+  rows.map((n) => n.props.card.name).join('|') === '测试卡A|测试卡A MVU版本|已删掉的卡',
+  rows.map((n) => n.props.card.name).join('|'),
+)
+check('有图的卡走 img 分支', rows.map((n) => Boolean(n.props.card.avatar)).join(',') === 'true,false,false')
 const chipsOf = (row) => findByClass(row.type(row.props), 'dwb-chip').map((n) => n.children.join(''))
-check('原版卡标「原版」', chipsOf(rows.find((r) => r.props.card.kind !== 'mvu')).includes('原版'), chipsOf(rows.find((r) => r.props.card.kind !== 'mvu')).join('/'))
-check('MVU 版标「MVU」', chipsOf(rows.find((r) => r.props.card.kind === 'mvu')).includes('MVU'), chipsOf(rows.find((r) => r.props.card.kind === 'mvu')).join('/'))
+check('原版卡标「原版」', chipsOf(rows[0]).includes('原版'), chipsOf(rows[0]).join('/'))
+check('MVU 版标「MVU」', chipsOf(rows[1]).includes('MVU'), chipsOf(rows[1]).join('/'))
+check('已不在目录的卡标「!」', chipsOf(rows[2]).includes('!'), chipsOf(rows[2]).join('/'))
+
+/* 已不在卡片目录的分类：仍要能手动清掉 */
+rows[2].props.onPick('cards/已删掉的卡.json')
+renderOnce()
+check('missing 的卡片分类给出删除入口', out.texts.includes('删除分类'), out.texts.filter((t) => t.includes('删除')).join(' / '))
+check('missing 的卡片分类说明文件已不在', out.texts.includes('文件已不在卡片目录'), out.texts.filter((t) => t.includes('不在')).join(' / '))
 check('条目区有自己的滚动容器', findByClass(tree, 'dwb-entries').length === 1, String(findByClass(tree, 'dwb-entries').length))
 check('左栏分类列表也有滚动容器', findByClass(tree, 'dwb-list').length === 1)
 
@@ -391,11 +422,6 @@ check(
   tabs.map((n) => n.children.join('')).join('|'),
 )
 check('错题页渲染查询工具条', findByClass(tree, 'dwb-bar').length >= 1)
-check(
-  '人物卡错题页只列卡片分类',
-  rows.length === 2 && rows.every((n) => n.props.card.group === 'card'),
-  rows.map((n) => `${n.props.card.name}[${n.props.card.group}]`).join('|'),
-)
 check('默认视图不渲染备份列表', findByClass(tree, 'dwb-backup').length === 0)
 
 /* 其它错题页 */
