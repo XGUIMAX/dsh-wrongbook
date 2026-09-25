@@ -149,6 +149,8 @@ window.__ModuleLoader__.load({
       'reflux.cancelCreate': '收起',
       'reflux.newSkill': '新建一个',
       'reflux.panelHint': '回流只写你自己的 skill：内置的在程序目录里，Tavern 更新会整份覆盖。',
+      'ver.stale': '改了没重启',
+      'ver.staleHint': '磁盘上已经是 v{disk}，但进程里跑的仍是 v{run} —— 插件在启动时就加载好了，完全退出 DSH 再启动才会读到新代码。',
       'reflux.auto': '以后新条目自动同步到这里',
       'reflux.autoOn': '已打开自动同步 → {name}；每记一条新错题就顺手跟一次。',
       'reflux.autoOff': '已关掉自动同步。',
@@ -354,6 +356,8 @@ window.__ModuleLoader__.load({
       'reflux.cancelCreate': 'Collapse',
       'reflux.newSkill': 'New one',
       'reflux.panelHint': 'Reflux only writes your own skills: built-ins live in the program directory and an update replaces them whole.',
+      'ver.stale': 'edited, not restarted',
+      'ver.staleHint': 'Disk says v{disk} but the process is still running v{run} — plugins load at startup, so only a full DSH restart picks up new code.',
       'reflux.auto': 'Keep new entries synced here automatically',
       'reflux.autoOn': 'Auto-sync is on → {name}; every new entry follows along.',
       'reflux.autoOff': 'Auto-sync is off.',
@@ -2451,8 +2455,28 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dwb-header-actions' },
-              h('span', { className: `dwb-ver dwb-chip${plugin.changedLocally ? ' warn' : ''}` }, `v${plugin.version || '?'}`),
-              verdictChip(),
+              h(
+                'span',
+                {
+                  className: `dwb-ver dwb-chip${plugin.stale || plugin.changedLocally ? ' warn' : ''}`,
+                  title: plugin.stale
+                    ? t('ver.staleHint').replace('{disk}', plugin.version || '?').replace('{run}', plugin.runningVersion || '?')
+                    : '',
+                },
+                `v${plugin.version || '?'}`,
+              ),
+              // 磁盘改了、进程里还是旧的 —— 这是最容易被误判成"改动无效"的一种情况，
+              // 所以直接说出来，而不是等人去对版本号。
+              plugin.stale
+                ? h(
+                    'span',
+                    {
+                      className: 'dwb-chip warn',
+                      title: t('ver.staleHint').replace('{disk}', plugin.version || '?').replace('{run}', plugin.runningVersion || '?'),
+                    },
+                    t('ver.stale'),
+                  )
+                : verdictChip(),
               h(
                 'button',
                 { type: 'button', className: 'dwb-btn', onClick: checkSelf, disabled: busy },

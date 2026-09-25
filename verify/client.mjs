@@ -453,6 +453,24 @@ check('无查询时不渲染 ②', !out.texts.includes('② 跨卡查询'))
 check('卡名显示', out.texts.includes('测试卡A'))
 check('版本号显示', out.texts.includes('v1.0.0'))
 check('自检结论显示', out.texts.includes('已是最新版'))
+/* 磁盘改了、进程里还是旧的：面板要能直接说出来，而不是等人去对版本号 */
+STATE.plugin.stale = true
+STATE.plugin.runningVersion = '0.9.9'
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+const staleTree = renderOnce()
+check('改了没重启时给出警告', out.texts.includes('改了没重启'), out.texts.filter((t) => t.includes('重启')).join(' / '))
+check(
+  '警告上带两个版本的说明',
+  findByClass(staleTree, 'dwb-chip').some((n) => String(n.props.title || '').includes('v0.9.9')),
+  findByClass(staleTree, 'dwb-chip').map((n) => String(n.props.title || '').slice(0, 24)).filter(Boolean).join(' / '),
+)
+STATE.plugin.stale = false
+STATE.plugin.runningVersion = STATE.plugin.version
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+renderOnce()
+check('一致时不再显示警告', !out.texts.includes('改了没重启'), out.texts.filter((t) => t.includes('重启')).join(' / '))
 check('数据目录显示', out.texts.some((t) => t.includes('tools\\wrongbook')))
 check('EntryView 已渲染', out.types.includes('EntryView'))
 

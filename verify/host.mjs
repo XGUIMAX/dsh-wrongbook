@@ -142,6 +142,7 @@ if (promptSection) {
     promptText.includes('差异判定') ? 'ok' : '缺差异判定',
   )
   check('提示段顺序值不与别家撞车', promptSection.order === 5100, String(promptSection.order))
+
 }
 
 function fakeRes() {
@@ -577,6 +578,19 @@ check(
 manifest.dsh.profile.bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-wrongbook']
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
 check('补回后重新判定为正常', (await state()).install.bundled === true)
+/* 自检里要能看出「磁盘上的版本」和「进程里跑的版本」是不是同一个 */
+
+const selfNow = (await state()).plugin
+check(
+  '自检带上运行版本',
+  typeof selfNow.runningVersion === 'string' && selfNow.runningVersion.length > 0,
+  String(selfNow.runningVersion),
+)
+check(
+  '刚加载完时磁盘与运行一致，不报需要重启',
+  selfNow.runningVersion === selfNow.version && selfNow.stale === false,
+  `disk=${selfNow.version} run=${selfNow.runningVersion} stale=${selfNow.stale}`,
+)
 
 /* 回流到 Skill：只写用户自己的，内置的当场说清不给写 */
 
