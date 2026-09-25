@@ -323,10 +323,27 @@ const SCRIPT_SCAN = {
   ],
 }
 
+/** 回流目标：一个用户 skill 加一个内置的，面板要把后者标成写不了。 */
+const SKILL_LIST = {
+  ok: true,
+  userDir: 'C:\\sandbox\\skills',
+  skills: [
+    { name: 'my-notes', dir: 'C:\\sandbox\\skills\\my-notes', builtin: false, description: '验收用', references: [] },
+    {
+      name: 'card-to-mvu',
+      dir: 'C:\\program\\skills\\card-to-mvu',
+      builtin: true,
+      description: '内置',
+      references: ['mvu-recipe.md'],
+    },
+  ],
+}
+
 const fetchStub = async (url, init) => {
   const target = String(url)
   if (target.includes('/state')) return { status: 200, ok: true, json: async () => STATE }
   if (target.includes('/scripts')) return { status: 200, ok: true, json: async () => SCRIPT_SCAN }
+  if (target.includes('/skills')) return { status: 200, ok: true, json: async () => SKILL_LIST }
   if (target.includes('/action')) {
     let body = {}
     try {
@@ -434,6 +451,51 @@ check('版本号显示', out.texts.includes('v1.0.0'))
 check('自检结论显示', out.texts.includes('已是最新版'))
 check('数据目录显示', out.texts.some((t) => t.includes('tools\\wrongbook')))
 check('EntryView 已渲染', out.types.includes('EntryView'))
+
+/* 回流到 Skill：按钮打开弹窗，内置 skill 在弹窗里被标成写不了 */
+const refluxBtn = findByClass(tree, 'dwb-btn').find((n) => n.children.join('') === '回流到 Skill')
+check('错题页有回流按钮', !!refluxBtn)
+if (refluxBtn) {
+  refluxBtn.props.onClick()
+  renderOnce()
+  for (const fn of effects.slice()) fn()
+  await new Promise((r) => setTimeout(r, 80))
+  const refluxTree = renderOnce()
+  // 组件元素不展开就看不到里面的东西 —— CardRow / CardScriptBlock 都是这么坑的。
+  const refluxNode = findByType(refluxTree, 'RefluxModal')[0]
+  const textsOf = (node, acc = []) => {
+    if (node == null || typeof node === 'boolean') return acc
+    if (typeof node === 'string' || typeof node === 'number') {
+      acc.push(String(node))
+      return acc
+    }
+    if (Array.isArray(node)) {
+      node.forEach((n) => textsOf(n, acc))
+      return acc
+    }
+    if (typeof node === 'object' && node.children) textsOf(node.children, acc)
+    return acc
+  }
+  const refluxTexts = refluxNode ? textsOf(refluxNode.type(refluxNode.props)) : []
+  check('回流弹窗打开', !!refluxNode, out.types.includes('RefluxModal') ? 'ok' : '没有弹窗')
+  check('弹窗说明只增不改', refluxTexts.some((t) => t.includes('同名的不会重复写')), refluxTexts.slice(0, 4).join(' / '))
+  check('弹窗列出用户 skill', refluxTexts.includes('my-notes'), refluxTexts.filter((t) => t.includes('notes')).join(' / '))
+  check(
+    '弹窗提示内置的写不了',
+    refluxTexts.some((t) => t.includes('内置 skill 在程序目录里')),
+    refluxTexts.filter((t) => t.includes('内置')).join(' / '),
+  )
+  check('弹窗给出范围与条数', refluxTexts.some((t) => /将写入 \d+ 条/.test(t)), refluxTexts.filter((t) => /将写入/.test(t)).join(' / '))
+  check('弹窗有写入按钮', refluxTexts.includes('写入'))
+  check('弹窗列的是用户 skill 不是内置的', !refluxTexts.includes('card-to-mvu') || refluxTexts.some((t) => t.includes('等 1 个')))
+  // 关掉，别影响后面的断言。
+  findByClass(refluxTree, 'dwb-btn')
+    .filter((n) => n.children.join('') === '关闭')
+    .forEach((n) => n.props.onClick())
+  renderOnce()
+  check('弹窗能关掉', !out.texts.some((t) => t.includes('同名的不会重复写')))
+}
+
 const rows = findByType(tree, 'CardRow')
 check('卡列表三项', rows.length === 3, String(rows.length))
 check(

@@ -117,6 +117,25 @@ window.__ModuleLoader__.load({
       'backup.dir.pick': '选择文件夹',
       'backup.dir.reset': '恢复默认',
       'backup.dir.hint': '只影响之后写入的备份：旧目录里已有的备份不会搬动，也不会被删掉。请填绝对路径。',
+      'reflux.open': '回流到 Skill',
+      'reflux.title': '回流到 Skill',
+      'reflux.hint':
+        '把错题库里的条目写进某个 skill 的参考资料，以后做同类事情时 Agent 能读到。只增不改：同名的不会重复写，你手工改过的内容也不会被覆盖。',
+      'reflux.skill': '目标 skill',
+      'reflux.file': '目标文件（相对 skill 目录）',
+      'reflux.scope': '范围',
+      'reflux.scopeAll': '全部',
+      'reflux.scopeCard': '当前分类',
+      'reflux.scopeActive': '未解决的',
+      'reflux.plan': '将写入 {n} 条',
+      'reflux.builtinWarn': '内置 skill 在程序目录里，Tavern 更新会整份覆盖它，所以这里只写你自己的。',
+      'reflux.noSkill': '还没有自己的 skill —— 先建一个，回流才有落脚处。',
+      'reflux.create': '新建 skill',
+      'reflux.createHint': '小写字母、数字、连字符，例如 mvu-migration-notes',
+      'reflux.write': '写入',
+      'reflux.done': '已写入 {n} 条到 {file}（跳过 {m} 条，文件里已有同名）',
+      'reflux.doneAllSkip': '这 {n} 条都已经在 {file} 里了，没有需要写的。',
+      'reflux.created': '已建好 skill「{name}」',
       'browse.title': '选择文件夹',
       'browse.go': '转到',
       'browse.drives': '驱动器',
@@ -280,6 +299,25 @@ window.__ModuleLoader__.load({
       'backup.dir.reset': 'Use default',
       'backup.dir.hint': 'Affects only backups written from now on: existing files in the old folder are neither moved nor deleted. Use an absolute path.',
       'browse.title': 'Choose folder',
+      'reflux.open': 'Reflux to skill',
+      'reflux.title': 'Reflux to skill',
+      'reflux.hint':
+        'Write ledger entries into a skill reference so agents read them before doing the same work again. Append-only: same-title entries are not repeated, and your own edits stay.',
+      'reflux.skill': 'Target skill',
+      'reflux.file': 'Target file (relative to the skill)',
+      'reflux.scope': 'Scope',
+      'reflux.scopeAll': 'Everything',
+      'reflux.scopeCard': 'This bucket',
+      'reflux.scopeActive': 'Unresolved',
+      'reflux.plan': '{n} entries to write',
+      'reflux.builtinWarn': 'Built-in skills live in the program directory and are replaced wholesale on update, so only your own are writable here.',
+      'reflux.noSkill': 'No skill of your own yet — create one first, so the entries have somewhere to land.',
+      'reflux.create': 'New skill',
+      'reflux.createHint': 'lowercase letters, digits, hyphens, e.g. mvu-migration-notes',
+      'reflux.write': 'Write',
+      'reflux.done': 'Wrote {n} entries into {file} ({m} skipped, already present)',
+      'reflux.doneAllSkip': 'All {n} entries are already in {file}; nothing to write.',
+      'reflux.created': 'Created skill "{name}"',
       'browse.go': 'Go',
       'browse.drives': 'Drives',
       'browse.up': 'Up one level',
@@ -710,6 +748,129 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 回流弹窗：挑目标 skill、挑范围、看条数，然后写。
+     *
+     * 只列用户自己的 skill 能选；内置那些照实显示但写不了 —— 它们在程序目录里，
+     * 下一次 Tavern 更新会整份覆盖，与其让人以为写成功了，不如当场说清。
+     */
+    function RefluxModal({ state, entries, selectedKey, onChange, onClose, onWrite, onCreate }) {
+      const skills = state.skills || []
+      const mine = skills.filter((s) => !s.builtin)
+      const builtins = skills.filter((s) => s.builtin)
+      const count =
+        state.scope === 'card'
+          ? entries.filter((e) => e.cardKey === selectedKey).length
+          : state.scope === 'active'
+            ? entries.filter((e) => e.status !== 'fixed').length
+            : entries.length
+      const scopeLabel = { all: 'scopeAll', card: 'scopeCard', active: 'scopeActive' }
+
+      return h(
+        'div',
+        {
+          className: 'dwb-overlay',
+          onClick: (ev) => {
+            if (ev.target === ev.currentTarget) onClose()
+          },
+        },
+        h(
+          'div',
+          { className: 'dwb-sheet' },
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h('span', { className: 'dwb-title dwb-grow' }, t('reflux.title')),
+            h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: onClose }, t('btn.close')),
+          ),
+          h('div', { className: 'dwb-sub' }, t('reflux.hint')),
+
+          h('div', { className: 'dwb-sub' }, t('reflux.skill')),
+          state.busy && !skills.length
+            ? h('div', { className: 'dwb-sub' }, t('scripts.loading'))
+            : mine.length
+              ? h(
+                  'select',
+                  { className: 'dwb-select', value: state.skill, onChange: (ev) => onChange({ skill: ev.target.value }) },
+                  mine.map((s) => h('option', { key: s.name, value: s.name }, s.name)),
+                )
+              : h('div', { className: 'dwb-sub' }, t('reflux.noSkill')),
+
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h('input', {
+              className: 'dwb-input dwb-grow',
+              placeholder: t('reflux.createHint'),
+              value: state.newName,
+              onChange: (ev) => onChange({ newName: ev.target.value }),
+            }),
+            h(
+              'button',
+              { type: 'button', className: 'dwb-btn ghost', disabled: state.busy || !state.newName, onClick: onCreate },
+              t('reflux.create'),
+            ),
+          ),
+
+          h('div', { className: 'dwb-sub' }, t('reflux.file')),
+          h('input', {
+            className: 'dwb-input',
+            value: state.file,
+            onChange: (ev) => onChange({ file: ev.target.value }),
+          }),
+
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h('span', { className: 'dwb-sub' }, t('reflux.scope')),
+            ...['all', 'card', 'active'].map((scope) =>
+              h(
+                'button',
+                {
+                  key: scope,
+                  type: 'button',
+                  className: `dwb-btn tiny${state.scope === scope ? ' primary' : ' ghost'}`,
+                  onClick: () => onChange({ scope }),
+                },
+                t(`reflux.${scopeLabel[scope]}`),
+              ),
+            ),
+            h('span', { className: 'dwb-grow' }),
+            h('span', { className: 'dwb-sub' }, t('reflux.plan').replace('{n}', count)),
+          ),
+
+          builtins.length
+            ? h(
+                'div',
+                { className: 'dwb-sub' },
+                `${t('reflux.builtinWarn')}（${builtins
+                  .slice(0, 4)
+                  .map((s) => s.name)
+                  .join('、')} 等 ${builtins.length} 个）`,
+              )
+            : null,
+          state.message ? h('div', { className: 'dwb-msg' }, state.message) : null,
+
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h('span', { className: 'dwb-grow' }),
+            h('button', { type: 'button', className: 'dwb-btn ghost', onClick: onClose }, t('btn.close')),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwb-btn primary',
+                disabled: state.busy || !state.skill || !count,
+                onClick: onWrite,
+              },
+              t('reflux.write'),
+            ),
+          ),
+        ),
+      )
+    }
+
     function BrowseModal({ initialPath, onPick, onClose }) {
       const [view, setView] = useState(null)
       const [typed, setTyped] = useState(String(initialPath || ''))
@@ -958,6 +1119,7 @@ window.__ModuleLoader__.load({
       const [browse, setBrowse] = useState(null)
       const [scriptScan, setScriptScan] = useState(null)
       const [scriptBusy, setScriptBusy] = useState(false)
+      const [reflux, setReflux] = useState(null)
       const [keepCount, setKeepCount] = useState(20)
 
       const push = useCallback((text, kind) => {
@@ -1345,6 +1507,95 @@ window.__ModuleLoader__.load({
         if (res) setMessage({ kind: 'ok', text: t('ok.rescan').replace('{n}', res.scanned) })
       }, [run])
 
+      /* ------------------------------------------------- 回流到 Skill */
+
+      /** 一条条目落进哪个范围 —— 决定回流传哪些。 */
+      const entriesInScope = (scope) => {
+        if (scope === 'card') return entries.filter((e) => e.cardKey === selectedKey)
+        if (scope === 'active') return entries.filter((e) => e.status !== 'fixed')
+        return entries
+      }
+
+      /**
+       * 打开回流弹窗。
+       *
+       * 内置 skill 也一并拉回来，但面板上标成不可选 —— 它们在程序目录里，
+       * 写了也会被下次更新整份覆盖，与其让人以为写成功了，不如当场说清。
+       */
+      const openReflux = () => {
+        setReflux({ skills: null, skill: '', file: 'references/错题库回流.md', scope: 'all', busy: true, message: '', newName: '' })
+        fetch(`${BASE}/skills`)
+          .then((res) => res.json())
+          .then((body) => {
+            const list = (body && body.skills) || []
+            const mine = list.filter((s) => !s.builtin)
+            setReflux((prev) =>
+              prev ? { ...prev, skills: list, skill: prev.skill || (mine[0] ? mine[0].name : ''), busy: false } : prev,
+            )
+          })
+          .catch((e) => {
+            setReflux((prev) => (prev ? { ...prev, skills: [], busy: false, message: String((e && e.message) || e) } : prev))
+          })
+      }
+
+      const createRefluxSkill = async () => {
+        const name = String(reflux.newName || '').trim()
+        if (!name) return
+        setReflux({ ...reflux, busy: true, message: '' })
+        try {
+          const res = await apiPost({ action: 'createSkill', name })
+          if (!res || res.ok === false) {
+            setReflux((prev) => (prev ? { ...prev, busy: false, message: (res && res.error) || '' } : prev))
+            return
+          }
+          setReflux((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  busy: false,
+                  newName: '',
+                  skill: name,
+                  message: t('reflux.created').replace('{name}', name),
+                  skills: (prev.skills || []).concat([{ name, builtin: false, references: [], description: '' }]),
+                }
+              : prev,
+          )
+        } catch (e) {
+          setReflux((prev) => (prev ? { ...prev, busy: false, message: String((e && e.message) || e) } : prev))
+        }
+      }
+
+      const doReflux = async () => {
+        const picked = entriesInScope(reflux.scope)
+        if (!reflux.skill || !picked.length) return
+        setReflux({ ...reflux, busy: true, message: '' })
+        const short = String(reflux.file).split('/').pop()
+        try {
+          const res = await apiPost({
+            action: 'refluxToSkill',
+            skill: reflux.skill,
+            file: reflux.file,
+            ids: picked.map((e) => e.id),
+          })
+          setReflux((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  busy: false,
+                  message:
+                    res && res.ok !== false
+                      ? res.written
+                        ? t('reflux.done').replace('{n}', res.written).replace('{file}', short).replace('{m}', res.skipped)
+                        : t('reflux.doneAllSkip').replace('{n}', res.skipped).replace('{file}', short)
+                      : (res && res.error) || '',
+                }
+              : prev,
+          )
+        } catch (e) {
+          setReflux((prev) => (prev ? { ...prev, busy: false, message: String((e && e.message) || e) } : prev))
+        }
+      }
+
       if (!data) {
         return h(
           'div',
@@ -1409,8 +1660,20 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dwb-grow' }),
           h('button', { type: 'button', className: 'dwb-btn primary', onClick: () => openEditor(null) }, t('btn.add')),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: rescan, disabled: busy }, t('btn.rescan')),
+          h('button', { type: 'button', className: 'dwb-btn ghost', onClick: openReflux, disabled: busy }, t('reflux.open')),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => void load() }, t('btn.reload')),
         ),
+        reflux
+          ? h(RefluxModal, {
+              state: reflux,
+              entries,
+              selectedKey,
+              onChange: (patch) => setReflux({ ...reflux, ...patch }),
+              onClose: () => setReflux(null),
+              onWrite: doReflux,
+              onCreate: createRefluxSkill,
+            })
+          : null,
         editor
           ? h(Editor, {
               state: editor,

@@ -33,11 +33,30 @@ fs.writeFileSync(
       private: true,
       dependencies: { 'dsh-wrongbook': `link:${PLUGIN_DIR.replace(/\\/g, '/')}` },
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-wrongbook'] } },
-      dshTavern: { managedBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], managedDependencies: [] },
+      dshTavern: {
+        source: path.join(ROOT, 'apps', 'dsh-tavern'),
+        managedBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+        managedDependencies: [],
+      },
     },
     null,
     2,
   ),
+  'utf8',
+)
+
+// 两种 skill 各造一个：用户的能写，内置的必须被拒。
+fs.mkdirSync(path.join(SANDBOX, 'skills', 'my-notes', 'references'), { recursive: true })
+fs.writeFileSync(
+  path.join(SANDBOX, 'skills', 'my-notes', 'SKILL.md'),
+  '---\nname: my-notes\ndescription: "验收用的用户 skill"\n---\n\n# my-notes\n',
+  'utf8',
+)
+const BUILTIN_DIR = path.join(ROOT, 'apps', 'dsh-tavern', 'presets', 'tavern', 'skills')
+fs.mkdirSync(path.join(BUILTIN_DIR, 'builtin-x', 'references'), { recursive: true })
+fs.writeFileSync(
+  path.join(BUILTIN_DIR, 'builtin-x', 'SKILL.md'),
+  '---\nname: builtin-x\ndescription: "验收用的内置 skill"\n---\n\n# builtin-x\n',
   'utf8',
 )
 let linked = false
@@ -82,7 +101,7 @@ check(
 )
 mod.apply(ctx)
 const toolMap = Object.fromEntries(tools.map((d) => [d.name, d]))
-check('注册了 5 条路由', routes.length === 5, routes.map((r) => r.path).join(', '))
+check('注册了 6 条路由', routes.length === 6, routes.map((r) => r.path).join(', '))
 check('注册了 3 个工具', tools.length === 3, tools.map((d) => d.name).join(', '))
 
 /* 提示段：工具注册只解决「能用」，这一段解决「会用」 */
@@ -536,6 +555,50 @@ check(
 manifest.dsh.profile.bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-wrongbook']
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
 check('补回后重新判定为正常', (await state()).install.bundled === true)
+
+/* 回流到 Skill：只写用户自己的，内置的当场说清不给写 */
+
+const skillList = JSON.parse((await call('/dsh-wrongbook/skills', 'GET')).body)
+check('列出用户 skill', skillList.skills.some((s) => s.name === 'my-notes' && !s.builtin), skillList.skills.map((s) => s.name).join(','))
+check('内置 skill 也列出来并带标记', skillList.skills.some((s) => s.name === 'builtin-x' && s.builtin))
+check('用户 skill 排在前面', skillList.skills[0] && skillList.skills[0].builtin === false, skillList.skills[0] && skillList.skills[0].name)
+check('认得出 skill 的 references', skillList.skills.find((s) => s.name === 'my-notes').references.includes('x') === false)
+
+const firstEntry = (await state()).entries[0]
+const firstId = firstEntry.id
+const reflux1 = await action({ action: 'refluxToSkill', skill: 'my-notes', ids: [firstId] })
+check('回流写入一条', reflux1.ok === true && reflux1.written === 1, JSON.stringify(reflux1).slice(0, 120))
+const refluxText = fs.readFileSync(reflux1.file, 'utf8')
+check('写出来的是条目正文', refluxText.includes(`### ${firstEntry.title}`), refluxText.slice(0, 60))
+check('带上分类与状态', refluxText.includes('错题库回流：') && refluxText.includes('·'), refluxText.split('\n').find((l) => l.startsWith('>')) || '')
+check('有现象就写进现象', !firstEntry.symptom || refluxText.includes(firstEntry.symptom))
+check('有修法就写进修法', !firstEntry.fix || refluxText.includes(firstEntry.fix))
+check('开头写清只增不改', refluxText.includes('只增不改'))
+
+const reflux2 = await action({ action: 'refluxToSkill', skill: 'my-notes', ids: [firstId] })
+check('同名条目不会写第二遍', reflux2.written === 0 && reflux2.skipped === 1, JSON.stringify(reflux2))
+
+const toBuiltin = await action({ action: 'refluxToSkill', skill: 'builtin-x', ids: [firstId] })
+check('内置 skill 拒绝回流', toBuiltin.ok === false, toBuiltin.error)
+check('拒绝时说清了为什么', /程序目录|更新会整份覆盖/.test(toBuiltin.error || ''), toBuiltin.error)
+check('内置 skill 目录没被写脏', !fs.existsSync(path.join(BUILTIN_DIR, 'builtin-x', 'references', '错题库回流.md')))
+
+check(
+  '目标文件不许跑出 skill 目录',
+  (await action({ action: 'refluxToSkill', skill: 'my-notes', file: '../../x.md', ids: [firstId] })).ok === false,
+)
+check('skill 名不许带路径', (await action({ action: 'refluxToSkill', skill: '../evil', ids: [firstId] })).ok === false)
+check('没选条目时拒绝', (await action({ action: 'refluxToSkill', skill: 'my-notes', ids: [] })).ok === false)
+
+const made = await action({ action: 'createSkill', name: 'new-notes' })
+check('能建出新 skill', made.ok === true && fs.existsSync(path.join(SANDBOX, 'skills', 'new-notes', 'SKILL.md')))
+check(
+  '新 skill 默认引用了回流文件',
+  fs.readFileSync(path.join(SANDBOX, 'skills', 'new-notes', 'SKILL.md'), 'utf8').includes('references/错题库回流.md'),
+)
+check('重名拒绝', (await action({ action: 'createSkill', name: 'new-notes' })).ok === false)
+check('名字不合法拒绝', (await action({ action: 'createSkill', name: 'Bad Name' })).ok === false)
+check('新 skill 立刻能作为回流目标', (await action({ action: 'refluxToSkill', skill: 'new-notes', ids: [firstId] })).ok === true)
 await action({ action: 'setBackupDir', dir: '' })
 
 /* 目录浏览：面板里「选择文件夹」的后台 */
