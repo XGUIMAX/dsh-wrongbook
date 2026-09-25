@@ -133,6 +133,7 @@ window.__ModuleLoader__.load({
       'reflux.create': '新建 skill',
       'reflux.createHint': '小写字母、数字、连字符，例如 mvu-migration-notes',
       'reflux.skillDescHint': '简介 —— 写清什么时候该读它，Agent 靠这句决定要不要自动加载',
+      'reflux.createNeedsName': '名字必填（小写字母、数字、连字符）；简介可以不填，但不填就很难被自动想起。',
       'reflux.write': '写入',
       'reflux.done': '已写入 {n} 条到 {file}（跳过 {m} 条，文件里已有同名）',
       'reflux.doneAllSkip': '这 {n} 条都已经在 {file} 里了，没有需要写的。',
@@ -316,6 +317,7 @@ window.__ModuleLoader__.load({
       'reflux.create': 'New skill',
       'reflux.createHint': 'lowercase letters, digits, hyphens, e.g. mvu-migration-notes',
       'reflux.skillDescHint': 'Description — say when to read it; agents decide whether to load this skill from that line',
+      'reflux.createNeedsName': 'The name is required (lowercase letters, digits, hyphens); the description is optional, but without it the skill is rarely recalled.',
       'reflux.write': 'Write',
       'reflux.done': 'Wrote {n} entries into {file} ({m} skipped, already present)',
       'reflux.doneAllSkip': 'All {n} entries are already in {file}; nothing to write.',
@@ -798,29 +800,30 @@ window.__ModuleLoader__.load({
                 )
               : h('div', { className: 'dwb-sub' }, t('reflux.noSkill')),
 
-          h(
-            'div',
-            { className: 'dwb-row' },
-            h('input', {
-              className: 'dwb-input dwb-grow',
-              placeholder: t('reflux.createHint'),
-              value: state.newName,
-              onChange: (ev) => onChange({ newName: ev.target.value }),
-            }),
-            h(
-              'button',
-              { type: 'button', className: 'dwb-btn ghost', disabled: state.busy || !state.newName, onClick: onCreate },
-              t('reflux.create'),
-            ),
-          ),
-          // description 是 Agent 判断"要不要自动加载这个 skill"的唯一依据，
-          // 留空的话插件会给一句通用的，但写清场景才真正管用。
+          // 顺序是刻意的：名字 → 简介 → 按钮。按钮原来夹在两者中间，
+          // 填完名字顺手就点了，根本没机会填简介 —— 而简介才是决定它会不会被加载的那句。
+          h('input', {
+            className: 'dwb-input',
+            placeholder: t('reflux.createHint'),
+            value: state.newName,
+            onChange: (ev) => onChange({ newName: ev.target.value }),
+          }),
           h('input', {
             className: 'dwb-input',
             placeholder: t('reflux.skillDescHint'),
             value: state.newDesc || '',
             onChange: (ev) => onChange({ newDesc: ev.target.value }),
           }),
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h('span', { className: 'dwb-sub dwb-grow' }, state.newName ? '' : t('reflux.createNeedsName')),
+            h(
+              'button',
+              { type: 'button', className: 'dwb-btn ghost', disabled: state.busy || !state.newName, onClick: onCreate },
+              t('reflux.create'),
+            ),
+          ),
 
           h('div', { className: 'dwb-sub' }, t('reflux.file')),
           h('input', {
