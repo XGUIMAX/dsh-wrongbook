@@ -244,9 +244,78 @@ const LOOKUP = {
   scanned: 3,
 }
 
+/** 卡脚本盘点的一次返回：一张卡带两个脚本（一个通用、一个特化），外加工具目录里那一个。 */
+const SCRIPT_SCAN = {
+  ok: true,
+  flagged: 1,
+  cards: [
+    {
+      key: 'cards/测试卡A.json',
+      name: '测试卡A',
+      bytes: 2048,
+      mtime: 0,
+      error: '',
+      scripts: [
+        { name: '外置状态栏', chars: 120, enabled: true, link: '', common: true, dataKeys: [] },
+        {
+          name: '助手agent_v0.15',
+          chars: 1015009,
+          enabled: true,
+          link: '',
+          common: false,
+          dataKeys: ['ash_agent', 'acu_anticliche_agent'],
+        },
+      ],
+      special: [
+        {
+          name: '助手agent_v0.15',
+          chars: 1015009,
+          enabled: true,
+          link: '',
+          common: false,
+          dataKeys: ['ash_agent', 'acu_anticliche_agent'],
+        },
+      ],
+      hasCommon: true,
+      controllers: ['主线控制器'],
+      patchEntries: [],
+      initvar: [],
+    },
+    {
+      key: 'cards/测试卡A MVU版本.json',
+      name: '测试卡A MVU版本',
+      bytes: 1024,
+      mtime: 0,
+      error: '',
+      scripts: [],
+      special: [],
+      hasCommon: false,
+      controllers: [],
+      patchEntries: [],
+      initvar: [],
+    },
+  ],
+  tools: [
+    {
+      rel: 'tools/async-agent/assistant-agent-v0.15.json',
+      file: 'assistant-agent-v0.15.json',
+      dir: 'async-agent',
+      bytes: 2436096,
+      mtime: 0,
+      name: '助手agent_v0.15',
+      chars: 1015009,
+      enabled: true,
+      link: '',
+      common: false,
+      dataKeys: ['ash_agent'],
+    },
+  ],
+}
+
 const fetchStub = async (url, init) => {
   const target = String(url)
   if (target.includes('/state')) return { status: 200, ok: true, json: async () => STATE }
+  if (target.includes('/scripts')) return { status: 200, ok: true, json: async () => SCRIPT_SCAN }
   if (target.includes('/action')) {
     let body = {}
     try {
@@ -414,11 +483,11 @@ function findByClass(node, cls, acc = []) {
 
 /* 视图切换：三个页签 */
 const tabs = findByClass(tree, 'dwb-tab')
-check('渲染出三个页签', tabs.length === 3, String(tabs.length))
+check('渲染出四个页签', tabs.length === 4, String(tabs.length))
 check('默认停在人物卡错题页', tabs[0] && tabs[0].props.className.includes('on'), tabs.map((n) => n.props.className).join('|'))
 check(
   '页签文案正确',
-  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|备份与还原',
+  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|卡脚本|备份与还原',
   tabs.map((n) => n.children.join('')).join('|'),
 )
 check('错题页渲染查询工具条', findByClass(tree, 'dwb-bar').length >= 1)
@@ -441,8 +510,37 @@ const otherTabs = findByClass(otherTree, 'dwb-tab')
 check('其它错题页签高亮', otherTabs[1].props.className.includes('on') && !otherTabs[0].props.className.includes('on'))
 check('其它错题页不渲染错题条目', findByClass(otherTree, 'dwb-entry').length === 0)
 
-/* 备份页 */
+/* 卡脚本页 */
 otherTabs[2].props.onClick()
+renderOnce()
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 80))
+const scriptTree = renderOnce()
+const scriptBlocks = findByType(scriptTree, 'CardScriptBlock')
+// CardScriptBlock 和 CardRow 一样是函数组件元素，children 是空的 —— 要展开才看得到里面。
+const rowsOf = (block) => findByType(block.type(block.props), 'ScriptRow')
+check(
+  '卡脚本页给出汇总',
+  out.texts.some((t) => t.includes('共 2 张卡')),
+  out.texts.filter((t) => t.includes('张卡')).join(' / '),
+)
+check('卡脚本页每张卡一块', scriptBlocks.length === 2, String(scriptBlocks.length))
+check('卡脚本页列出脚本行', scriptBlocks.length === 2 && rowsOf(scriptBlocks[0]).length === 2, scriptBlocks.length ? String(rowsOf(scriptBlocks[0]).length) : '0')
+check(
+  '卡脚本页用该页自己的说明',
+  out.texts.some((t) => t.includes('DSH 没有全局脚本槽')),
+  out.texts.filter((t) => t.includes('脚本随卡')).join(' / '),
+)
+check('卡脚本页列出工具目录', out.texts.includes('工具目录里的脚本'))
+check(
+  '工具目录里能看到那个导出的脚本',
+  out.texts.some((t) => t.includes('assistant-agent-v0.15')),
+  out.texts.filter((t) => t.includes('async-agent')).join(' / '),
+)
+
+/* 备份页 */
+const scriptTabs = findByClass(scriptTree, 'dwb-tab')
+scriptTabs[3].props.onClick()
 const backupTree = renderOnce()
 const backupRows = findByClass(backupTree, 'dwb-backup')
 check('备份页渲染出备份行', backupRows.length === 2, String(backupRows.length))

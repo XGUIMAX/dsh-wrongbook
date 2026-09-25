@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
       'panel.desc': '按卡片分类记下调试中踩过的坑；卡出问题时先查它自己的错题库，再跨卡查询。',
       'tab.entries': '人物卡错题',
       'tab.other': '其它错题',
+      'tab.scripts': '卡脚本',
       'tab.backup': '备份与还原',
       'search.ph': '跨卡查询：症状、标签、报错原文…',
       'filter.status': '全部状态',
@@ -95,8 +96,22 @@ window.__ModuleLoader__.load({
       'backup.entries': '{n} 条',
       'backup.entriesUnknown': '—',
       'backup.keepHint': '超出这个数量的旧备份会被删掉；自动清理的上限是 60 份。',
-      'backup.dir.title': '备份目录',
-      'backup.dir.custom': '自定义',
+      'scripts.hint':
+        '卡内自带的自定义脚本与机制条目。DSH 没有全局脚本槽：脚本随卡加载，换一张卡就换一套，所以排查任何一张卡之前先看清它带了什么。',
+      'scripts.loading': '正在盘点…（要读几张十几 MB 的卡，第一次会慢一点）',
+      'scripts.summary': '共 {n} 张卡，其中 {flagged} 张带特化内容',
+      'scripts.count': '{n} 个脚本',
+      'scripts.specialCount': '特化 {n}',
+      'scripts.controllerCount': '控制器 {n}',
+      'scripts.none': '这张卡没有自带脚本。',
+      'scripts.disabled': '停用',
+      'scripts.controllers': '控制器条目',
+      'scripts.patchEntries': '含 update / json_patch 的条目',
+      'scripts.tools': '工具目录里的脚本',
+      'scripts.toolsHint': 'data/tools 下不属于任何一张卡的脚本：从卡里导出来的，或为卡自制待命的那批。',
+      'scripts.empty': '没有扫到脚本。',
+      'scripts.otherCard': '其它张卡',
+      'backup.dir.title': '备份目录',      'backup.dir.custom': '自定义',
       'backup.dir.pick': '选择文件夹',
       'backup.dir.reset': '恢复默认',
       'backup.dir.hint': '只影响之后写入的备份：旧目录里已有的备份不会搬动，也不会被删掉。请填绝对路径。',
@@ -171,6 +186,7 @@ window.__ModuleLoader__.load({
       'search.ph': 'Cross-card search: symptom, tag, error text…',
       'tab.entries': 'Card issues',
       'tab.other': 'Other issues',
+      'tab.scripts': 'Card scripts',
       'tab.backup': 'Backups',
       'search.ph': 'Cross-card search: symptom, tag, error text…',
       'filter.status': 'All statuses',
@@ -239,6 +255,21 @@ window.__ModuleLoader__.load({
       'backup.entries': '{n} entries',
       'backup.entriesUnknown': '—',
       'backup.keepHint': 'Older backups beyond this count are deleted; automatic pruning caps at 60.',
+      'scripts.hint':
+        'Scripts a card ships with, plus the mechanism entries that steer it. DSH has no global script slot: scripts load with the card, so read what a card carries before debugging it.',
+      'scripts.loading': 'Taking inventory… (this reads a few multi-megabyte cards on the first pass)',
+      'scripts.summary': '{n} cards, {flagged} carrying something special',
+      'scripts.count': '{n} scripts',
+      'scripts.specialCount': '{n} special',
+      'scripts.controllerCount': '{n} controllers',
+      'scripts.none': 'This card ships no scripts.',
+      'scripts.disabled': 'off',
+      'scripts.controllers': 'Controller entries',
+      'scripts.patchEntries': 'Entries carrying update / json_patch',
+      'scripts.tools': 'Scripts under the tools folder',
+      'scripts.toolsHint': 'Under data/tools, belonging to no card: exported from one, or waiting to be adapted.',
+      'scripts.empty': 'Nothing scanned.',
+      'scripts.otherCard': 'Other cards',
       'backup.dir.title': 'Backup folder',
       'backup.dir.custom': 'custom',
       'backup.dir.pick': 'Choose folder',
@@ -351,6 +382,21 @@ window.__ModuleLoader__.load({
       // 条目区自己滚：一栏十几条时，让它撑高整个设置页比让它内部滚动难用得多。
       // 标题留在容器外，滚动时还看得见自己在看哪一段。
       '.dwb-entries{display:flex;flex-direction:column;gap:8px;max-height:min(560px,52vh);overflow:auto;padding-right:2px;scrollbar-gutter:stable}',
+      // 卡脚本：一张卡一个折叠块。details 不接受控的 open —— 接了之后 React 会在
+      // 每次重渲染时把展开状态按回去，用户就收不起来了。
+      '.dwb-script{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:6px 8px;background:var(--dsw-alias-bg-layer-2)}',
+      '.dwb-script+.dwb-script{margin-top:6px}',
+      '.dwb-script>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;outline:none}',
+      '.dwb-script>summary::-webkit-details-marker{display:none}',
+      '.dwb-script>summary::before{content:"▸";color:var(--dsw-alias-label-secondary);font-size:10px;flex:none}',
+      '.dwb-script[open]>summary::before{content:"▾"}',
+      '.dwb-script-name{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all}',
+      '.dwb-scripts{display:flex;flex-direction:column;gap:3px;margin-top:8px}',
+      '.dwb-script-row{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 4px;border-radius:6px;flex-wrap:wrap}',
+      '.dwb-script-row.common{opacity:.55}',
+      '.dwb-dot{flex:none;font-size:9px;color:var(--dsw-alias-state-success-primary)}',
+      '.dwb-dot.off{color:var(--dsw-alias-label-secondary)}',
+      '.dwb-mono{font-family:ui-monospace,Consolas,monospace}',
       '.dwb-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}',
       '.dwb-item:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.dwb-item.on{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}',
@@ -609,6 +655,56 @@ window.__ModuleLoader__.load({
      * 都不一定 —— 改成让 host 列一层目录、这里渲染一层。空路径列出所有驱动器，
      * 所以换到别的盘也走得到。
      */
+    /** 一行脚本：名字、字符数、外链、data 键、启停。 */
+    function ScriptRow({ script }) {
+      return h(
+        'div',
+        { className: `dwb-script-row${script.common ? ' common' : ''}` },
+        h('span', { className: `dwb-dot${script.enabled ? '' : ' off'}` }, script.enabled ? '●' : '○'),
+        h('span', { className: 'dwb-mono dwb-grow' }, script.name),
+        h('span', { className: 'dwb-sub' }, `${script.chars} 字符`),
+        script.link ? h('span', { className: 'dwb-chip' }, script.link) : null,
+        script.dataKeys.length ? h('span', { className: 'dwb-chip tag' }, `data: ${script.dataKeys.join(', ')}`) : null,
+        script.enabled ? null : h('span', { className: 'dwb-chip warn' }, t('scripts.disabled')),
+      )
+    }
+
+    /**
+     * 一张卡的脚本块。
+     *
+     * `details` 刻意不接受控的 `open`：接了之后每次重渲染都会把展开状态按回初始值，
+     * 用户就再也收不起来（或展不开）。默认收起，summary 上写清带了多少特化内容。
+     */
+    function CardScriptBlock({ card }) {
+      const bits = [t('scripts.count').replace('{n}', card.scripts.length)]
+      if (card.special.length) bits.push(t('scripts.specialCount').replace('{n}', card.special.length))
+      if (card.controllers.length) bits.push(t('scripts.controllerCount').replace('{n}', card.controllers.length))
+      return h(
+        'details',
+        { className: 'dwb-script' },
+        h(
+          'summary',
+          null,
+          h('span', { className: 'dwb-script-name dwb-grow' }, card.name),
+          bits.map((bit, i) => h('span', { key: i, className: `dwb-chip${i === 1 ? ' warn' : ''}` }, bit)),
+        ),
+        card.error ? h('div', { className: 'dwb-msg bad' }, card.error) : null,
+        card.scripts.length
+          ? h(
+              'div',
+              { className: 'dwb-scripts' },
+              card.scripts.map((script, i) => h(ScriptRow, { key: i, script })),
+            )
+          : h('div', { className: 'dwb-sub' }, t('scripts.none')),
+        card.controllers.length
+          ? h('div', { className: 'dwb-sub' }, `${t('scripts.controllers')}：${card.controllers.join('、')}`)
+          : null,
+        card.patchEntries.length
+          ? h('div', { className: 'dwb-sub' }, `${t('scripts.patchEntries')}：${card.patchEntries.join('、')}`)
+          : null,
+      )
+    }
+
     function BrowseModal({ initialPath, onPick, onClose }) {
       const [view, setView] = useState(null)
       const [typed, setTyped] = useState(String(initialPath || ''))
@@ -855,6 +951,8 @@ window.__ModuleLoader__.load({
       const [bucketOpen, setBucketOpen] = useState(false)
       const [bucketText, setBucketText] = useState('')
       const [browse, setBrowse] = useState(null)
+      const [scriptScan, setScriptScan] = useState(null)
+      const [scriptBusy, setScriptBusy] = useState(false)
       const [keepCount, setKeepCount] = useState(20)
 
       const push = useCallback((text, kind) => {
@@ -955,11 +1053,33 @@ window.__ModuleLoader__.load({
       /** 切页签时把选中项挪到该组里，否则右栏会显示上一组的分类。 */
       const pickView = (next) => {
         setView(next)
-        if (next === 'backup') return
+        // 备份与卡脚本两页跟"选中哪个分类"无关，别去动它。
+        if (next !== 'entries' && next !== 'other') return
         const group = next === 'other' ? 'other' : 'card'
         const list = cards.filter((c) => (c.group || 'card') === group)
         if (!list.some((c) => c.key === selectedKey)) setSelectedKey(list[0] ? list[0].key : '')
       }
+
+      // 卡脚本盘点按需拉取：它要读几张十几 MB 的卡，不该拖慢每次打开面板。
+      useEffect(() => {
+        if (view !== 'scripts' || scriptScan || scriptBusy) return undefined
+        let alive = true
+        setScriptBusy(true)
+        fetch(`${BASE}/scripts`)
+          .then((res) => res.json())
+          .then((body) => {
+            if (alive) setScriptScan(body && body.ok ? body : { cards: [], tools: [], error: (body && body.error) || '' })
+          })
+          .catch((e) => {
+            if (alive) setScriptScan({ cards: [], tools: [], error: String(e && e.message ? e.message : e) })
+          })
+          .finally(() => {
+            if (alive) setScriptBusy(false)
+          })
+        return () => {
+          alive = false
+        }
+      }, [view, scriptScan, scriptBusy])
 
       const ownEntries = useMemo(() => {
         return entries
@@ -1249,7 +1369,15 @@ window.__ModuleLoader__.load({
       const entriesView = h(
         Fragment,
         null,
-        h('div', { className: 'dwb-hint' }, isOther ? t('bucket.otherHint') : `${t('order.hint')} · ${selfHint}`),
+        h(
+          'div',
+          { className: 'dwb-hint' },
+          view === 'scripts'
+            ? t('scripts.hint')
+            : isOther
+              ? t('bucket.otherHint')
+              : `${t('order.hint')} · ${selfHint}`,
+        ),
         // 工具条：跨卡查询与筛选。状态/范围筛选同时作用于本卡列表和跨卡检索。
         h(
           'div',
@@ -1495,6 +1623,71 @@ window.__ModuleLoader__.load({
         ),
       )
 
+      /* ----------------------------------------------------- 卡脚本视图 */
+
+      const scriptsView = h(
+        Fragment,
+        null,
+        h(
+          'div',
+          { className: 'dwb-card dwb-card flat' },
+          h(
+            'div',
+            { className: 'dwb-row' },
+            h(
+              'div',
+              { className: 'dwb-sub dwb-grow' },
+              scriptScan
+                ? t('scripts.summary').replace('{n}', scriptScan.cards.length).replace('{flagged}', scriptScan.flagged)
+                : t('scripts.loading'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dwb-btn tiny ghost',
+                disabled: scriptBusy,
+                onClick: () => setScriptScan(null),
+              },
+              t('btn.reload'),
+            ),
+          ),
+          h('div', { className: 'dwb-hint' }, t('scripts.hint')),
+          scriptScan && scriptScan.error ? h('div', { className: 'dwb-msg bad' }, scriptScan.error) : null,
+          h(
+            'div',
+            { className: 'dwb-entries' },
+            scriptScan && scriptScan.cards.length
+              ? scriptScan.cards.map((card) => h(CardScriptBlock, { key: card.key, card }))
+              : h('div', { className: 'dwb-empty' }, scriptScan ? t('scripts.empty') : t('scripts.loading')),
+          ),
+        ),
+        scriptScan && scriptScan.tools.length
+          ? h(
+              'div',
+              { className: 'dwb-card dwb-card flat' },
+              h('div', { className: 'dwb-title' }, t('scripts.tools')),
+              h('div', { className: 'dwb-sub' }, t('scripts.toolsHint')),
+              h(
+                'div',
+                { className: 'dwb-entries' },
+                scriptScan.tools.map((tool) =>
+                  h(
+                    'div',
+                    { key: tool.rel, className: 'dwb-script-row' },
+                    h('span', { className: 'dwb-mono dwb-grow' }, tool.rel),
+                    h('span', { className: 'dwb-sub' }, `${Math.round(tool.bytes / 1024)} KB`),
+                    tool.chars ? h('span', { className: 'dwb-chip' }, `${tool.chars} 字符`) : null,
+                    tool.dataKeys && tool.dataKeys.length
+                      ? h('span', { className: 'dwb-chip tag' }, `data: ${tool.dataKeys.join(', ')}`)
+                      : null,
+                  ),
+                ),
+              ),
+            )
+          : null,
+      )
+
       /* --------------------------------------------------- 备份视图 */
 
       const backupView = h(
@@ -1699,6 +1892,11 @@ window.__ModuleLoader__.load({
               ),
               h(
                 'button',
+                { type: 'button', className: `dwb-tab${view === 'scripts' ? ' on' : ''}`, onClick: () => pickView('scripts') },
+                t('tab.scripts'),
+              ),
+              h(
+                'button',
                 { type: 'button', className: `dwb-tab${view === 'backup' ? ' on' : ''}`, onClick: () => pickView('backup') },
                 t('tab.backup'),
               ),
@@ -1714,7 +1912,7 @@ window.__ModuleLoader__.load({
                 message.hint ? h('span', { className: 'dwb-sub' }, message.hint) : null,
               )
             : null,
-          view === 'backup' ? backupView : entriesView,
+          view === 'backup' ? backupView : view === 'scripts' ? scriptsView : entriesView,
           h(
             'div',
             { className: 'dwb-card dwb-card flat' },

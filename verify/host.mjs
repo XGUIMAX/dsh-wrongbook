@@ -49,7 +49,7 @@ check(
 )
 mod.apply(ctx)
 const toolMap = Object.fromEntries(tools.map((d) => [d.name, d]))
-check('注册了 4 条路由', routes.length === 4, routes.map((r) => r.path).join(', '))
+check('注册了 5 条路由', routes.length === 5, routes.map((r) => r.path).join(', '))
 check('注册了 3 个工具', tools.length === 3, tools.map((d) => d.name).join(', '))
 
 /* 提示段：工具注册只解决「能用」，这一段解决「会用」 */
@@ -381,6 +381,45 @@ check(
   (await state()).entries.some((e) => e.title === '这张卡上有结论' && e.cardKey === s1.generalKey),
 )
 check('在册的卡片分类仍然拒绝删除', (await action({ action: 'deleteBucket', key: 'cards/测试卡A.json' })).ok === false)
+
+/* 卡内脚本盘点 */
+
+const scripted = {
+  raw: {
+    data: {
+      extensions: {
+        tavern_helper: {
+          scripts: [
+            { name: '外置状态栏', content: 'x'.repeat(50), enabled: true },
+            { name: '某卡特化脚本', content: 'y'.repeat(500), enabled: false },
+          ],
+        },
+      },
+      character_book: {
+        entries: [
+          { comment: '主线控制器', content: '' },
+          { comment: '普通条目', content: 'json_patch 什么的' },
+        ],
+      },
+    },
+  },
+}
+fs.writeFileSync(path.join(CARDS, '带脚本的卡.json'), JSON.stringify(scripted), 'utf8')
+const scanned = JSON.parse((await call('/dsh-wrongbook/scripts', 'GET')).body)
+const scriptedCard = scanned.cards.find((c) => c.key === 'cards/带脚本的卡.json')
+check('扫得到卡内脚本', !!scriptedCard && scriptedCard.scripts.length === 2, scriptedCard ? String(scriptedCard.scripts.length) : '没扫到这张卡')
+check('外层 raw 包装被剥掉', !!scriptedCard && scriptedCard.scripts.length === 2, '少剥一层就会是 0')
+check(
+  '通用脚本不算特化',
+  !!scriptedCard && scriptedCard.special.length === 1 && scriptedCard.special[0].name === '某卡特化脚本',
+  scriptedCard ? scriptedCard.special.map((s) => s.name).join(',') : '',
+)
+check('停用状态读得出来', !!scriptedCard && scriptedCard.special[0].enabled === false)
+check('控制器条目挑出来', !!scriptedCard && scriptedCard.controllers.includes('主线控制器'), scriptedCard ? scriptedCard.controllers.join(',') : '')
+check('含 json_patch 的条目挑出来', !!scriptedCard && scriptedCard.patchEntries.includes('普通条目'), scriptedCard ? scriptedCard.patchEntries.join(',') : '')
+check('没脚本的卡也照实返回', scanned.cards.some((c) => c.scripts.length === 0))
+check('工具目录一并扫了', Array.isArray(scanned.tools), String(scanned.tools.length))
+check('统计出带特化内容的卡数', scanned.flagged >= 1, String(scanned.flagged))
 
 /* 备份的删除与清理 */
 const bk = await action({ action: 'backupNow' })
