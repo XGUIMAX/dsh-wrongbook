@@ -111,6 +111,8 @@ window.__ModuleLoader__.load({
       'scripts.toolsHint': 'data/tools 下不属于任何一张卡的脚本：从卡里导出来的，或为卡自制待命的那批。',
       'scripts.empty': '没有扫到脚本。',
       'scripts.otherCard': '其它张卡',
+      'install.ok': '插件安装正常：profile 清单里有它，node_modules 的链接也通。Tavern 更新只重写自己托管的那几项，碰不到这里。',
+      'install.bad': '插件在 profile 清单里不见了 —— 可能更新时被抹掉，也可能被手动移除过。补回：',
       'backup.dir.title': '备份目录',      'backup.dir.custom': '自定义',
       'backup.dir.pick': '选择文件夹',
       'backup.dir.reset': '恢复默认',
@@ -270,6 +272,8 @@ window.__ModuleLoader__.load({
       'scripts.toolsHint': 'Under data/tools, belonging to no card: exported from one, or waiting to be adapted.',
       'scripts.empty': 'Nothing scanned.',
       'scripts.otherCard': 'Other cards',
+      'install.ok': 'Installed properly: it is in the profile manifest and the node_modules link resolves. Tavern updates only rewrite what they manage.',
+      'install.bad': 'The plugin is missing from the profile manifest — an update may have dropped it, or it was removed by hand. To put it back:',
       'backup.dir.title': 'Backup folder',
       'backup.dir.custom': 'custom',
       'backup.dir.pick': 'Choose folder',
@@ -416,6 +420,7 @@ window.__ModuleLoader__.load({
       '.dwb-msg{padding:8px 10px;border-radius:9px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:3px}',
       '.dwb-msg.ok{border-color:var(--dsw-alias-state-success-primary)}',
       '.dwb-msg.bad{border-color:var(--dsw-alias-state-error-primary)}',
+      '.dwb-pre{margin:6px 0 0;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all}',
       '.dwb-log{font-family:ui-monospace,Consolas,monospace;font-size:11px;max-height:132px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
       '.dwb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       '.dwb-field{display:flex;flex-direction:column;gap:3px}',
@@ -1726,6 +1731,19 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'dwb-path' }, data.dataFile ? data.dataFile.file : data.paths.dbFile),
+          // 安装自检：Tavern 更新时会不会把插件从 profile 里抹掉，这里给个实时的答案。
+          h(
+            'div',
+            { className: `dwb-msg ${data.install && data.install.ok ? 'ok' : 'bad'}` },
+            data.install && data.install.ok
+              ? t('install.ok')
+              : h(
+                  Fragment,
+                  null,
+                  h('div', null, t('install.bad')),
+                  h('pre', { className: 'dwb-pre' }, (data.install && data.install.fix) || ''),
+                ),
+          ),
         ),
         // 备份目录可以改到别处（换盘、丢进同步盘都行）。改完只影响之后写入的备份。
         h(

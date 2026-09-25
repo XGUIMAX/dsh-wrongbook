@@ -183,6 +183,17 @@ const STATE = {
     history: [],
     dataRoot: 'C:\\sandbox\\tools\\wrongbook',
   },
+  install: {
+    profileDir: 'C:\\sandbox\\profiles\\tavern',
+    manifestFile: 'C:\\sandbox\\profiles\\tavern\\package.json',
+    pluginDir: 'C:\\sandbox\\plugins\\dsh-wrongbook',
+    declared: true,
+    bundled: true,
+    linked: true,
+    linkTarget: '..\\..\\..\\plugins\\dsh-wrongbook',
+    ok: true,
+    fix: '',
+  },
 }
 
 /** 一次跨卡查询的返回：三段各一条，用来验证三段都渲染得出来。 */
@@ -552,6 +563,12 @@ check('备份页有备份目录设置', out.texts.includes('备份目录'), out.
 check('备份页显示当前备份路径', out.texts.some((t) => t.includes('wrongbook\\backups')))
 check('备份页有选择文件夹入口', out.texts.includes('选择文件夹'))
 check('默认目录不显示自定义标记', !out.texts.includes('自定义'))
+check(
+  '备份页给出插件安装自检',
+  out.texts.some((t) => t.includes('插件安装正常')),
+  out.texts.filter((t) => t.includes('安装')).join(' / '),
+)
+check('安装正常时不显示补回命令', findByClass(backupTree, 'dwb-pre').length === 0)
 
 /* 备份目录的浏览弹窗：卡片更新器那一套，自己列目录、自己选 */
 const pickBtn = findByClass(backupTree, 'dwb-btn').find((n) => n.children.join('') === '选择文件夹')

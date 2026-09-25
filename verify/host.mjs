@@ -5,8 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const SANDBOX = path.join(os.tmpdir(), 'dsh-wrongbook-sandbox')
-fs.rmSync(SANDBOX, { recursive: true, force: true })
+// 沙盒按真实布局搭：`<根>/profile-data/tavern/data` 是数据根，
+// `<根>/profiles/tavern` 是 profile —— 安装自检要从数据根反推 profile 名，
+// 布局不像的话那条推算就没被真正验证。
+const ROOT = path.join(os.tmpdir(), 'dsh-wrongbook-sandbox')
+fs.rmSync(ROOT, { recursive: true, force: true })
+const SANDBOX = path.join(ROOT, 'profile-data', 'tavern', 'data')
 const CARDS = path.join(SANDBOX, 'resources', 'cards')
 const ORIG = path.join(SANDBOX, 'originals', 'cards')
 fs.mkdirSync(CARDS, { recursive: true })
@@ -16,7 +20,36 @@ fs.writeFileSync(path.join(CARDS, '测试卡A MVU版本.json'), '{"name":"A MVU"
 fs.writeFileSync(path.join(CARDS, '测试卡B.json'), '{"name":"测试卡B"}', 'utf8')
 fs.writeFileSync(path.join(ORIG, '测试卡A.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
 
+// profile 侧照抄真实那两处：dependencies 里一条 link:、dsh.profile.bundles 里一条名字。
+const PLUGIN_DIR = fileURLToPath(new URL('..', import.meta.url))
+const PROFILE_DIR = path.join(ROOT, 'profiles', 'tavern')
+const PROFILE_MODULES = path.join(PROFILE_DIR, 'node_modules')
+fs.mkdirSync(PROFILE_MODULES, { recursive: true })
+fs.writeFileSync(
+  path.join(PROFILE_DIR, 'package.json'),
+  JSON.stringify(
+    {
+      name: 'dsh-profile-tavern',
+      private: true,
+      dependencies: { 'dsh-wrongbook': `link:${PLUGIN_DIR.replace(/\\/g, '/')}` },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-wrongbook'] } },
+      dshTavern: { managedBundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], managedDependencies: [] },
+    },
+    null,
+    2,
+  ),
+  'utf8',
+)
+let linked = false
+try {
+  fs.symlinkSync(PLUGIN_DIR, path.join(PROFILE_MODULES, 'dsh-wrongbook'), 'junction')
+  linked = true
+} catch {
+  /* Windows 上建不出链接就算了，那条断言会跳过 */
+}
+
 // 必须在 import 之前设置：host 半边在模块求值时解析数据根。
+process.env.DSH_HOME = ROOT
 process.env.DSH_TAVERN_DATA = SANDBOX
 const mod = await import(new URL('../lib/index.js', import.meta.url).href)
 
@@ -475,6 +508,34 @@ check(
 await action({ action: 'pruneBackups', keep: 1 })
 check('清理不动别人的文件', fs.existsSync(foreignFile))
 check('deleteBackup 拒绝外来文件名', (await action({ action: 'deleteBackup', file: '别人的备份.json' })).ok === false)
+
+/* 安装自检：profile 侧那两处都造好了，应当判定为正常 */
+
+const install = (await state()).install
+check('安装自检有结论', !!install && typeof install.ok === 'boolean', JSON.stringify(install && install.ok))
+check('profile 目录从数据根反推得出来', install.profileDir === PROFILE_DIR, install.profileDir)
+check('认得出 dependencies 里那条 link', install.declared === true)
+check('认得出 dsh.profile.bundles 里那条名字', install.bundled === true)
+check('链接状态有结论', typeof install.linked === 'boolean', String(install.linked))
+check('两处都在时判定为正常', install.ok === (install.linked === true), `ok=${install.ok} linked=${install.linked}`)
+check('正常时不啰嗦补回命令', install.ok ? install.fix === '' : install.fix.length > 0)
+
+/* 把 bundles 里那条名字拿掉：应当立刻判定为缺失，并给出补回命令 */
+const manifestPath = path.join(PROFILE_DIR, 'package.json')
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+manifest.dsh.profile.bundles = ['@deepseek-ai/dsh-base']
+fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+const broken = (await state()).install
+check('少一条名字就判定为缺失', broken.ok === false && broken.bundled === false, `ok=${broken.ok} bundled=${broken.bundled}`)
+check('缺失时给出补回命令', broken.fix.includes('dsh plugin add'), (broken.fix.split('\n')[1] || '').trim())
+check(
+  '补回命令点名两处该补的地方',
+  broken.fix.includes('dsh.profile.bundles') && broken.fix.includes('dependencies'),
+  broken.fix.split('\n').slice(-2).join(' / '),
+)
+manifest.dsh.profile.bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-wrongbook']
+fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+check('补回后重新判定为正常', (await state()).install.bundled === true)
 await action({ action: 'setBackupDir', dir: '' })
 
 /* 目录浏览：面板里「选择文件夹」的后台 */

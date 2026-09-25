@@ -166,7 +166,22 @@ dsh plugin --profile tavern update dsh-wrongbook
 
 - 插件源码在 `~/.dsh/plugins/dsh-wrongbook`，不在程序安装目录里。
 - 数据在 `<Tavern dataRoot>/tools/wrongbook`。
-- profile 侧只做两件事：`dependencies` 里一条 `link:`（或 GitHub 装的版本号），`dsh.profile.bundles` 里一条名字。两个清单都不属于 Tavern 自我更新会重写的那部分。
+- profile 侧只做两件事：`dependencies` 里一条 `link:`（或 GitHub 装的版本号），`dsh.profile.bundles` 里一条名字。
+
+**这两处为什么动不到**，不是猜的。Tavern 更新 profile 清单走 `bin/profile-configuration.mjs` 的 `mergeProfileManifest`，是读-改-写加精确排除：
+
+```js
+const userBundles = currentProfile.bundles.filter((n) => !previousManagedBundleSet.has(n))
+const bundles = uniqueStrings(sourceBundles.concat(userBundles))
+
+const dependencies = { ...currentDependencies }
+for (const n of [...previousManagedDependencies, ...excludedMobileBundles]) delete dependencies[n]
+for (const n of managedDependencies) dependencies[n] = sourceDependencies[n]
+```
+
+它只删**自己上次托管的**、只覆盖**自己这次托管的**，用户自己加的条目原样留在里面。这个插件既不在这份 `managedBundles` / `managedDependencies` 里，也不在 `previousManaged*` 里，所以一个分支都碰不到它。
+
+**面板上有一行实时自检**（备份与还原页底部），查三件事：`dependencies` 里那条还在不在、`dsh.profile.bundles` 里那条还在不在、`node_modules` 的链接是否指回插件目录。全绿即正常；缺了会直接给出补回命令（`dsh plugin add <插件目录>`，或手工补那两处），不用去翻这份 README 猜。
 
 ## 性能
 
@@ -215,8 +230,8 @@ verify/        两套验收脚本
 ### 验收
 
 ```bash
-node verify/host.mjs      # 158 项：扫描、分组、归类、卡名解析、三段检索、卡内脚本、路由、工具、自检、备份、目录浏览
-node verify/client.mjs    # 73 项：注册接线、字典一致性、四个页签与浏览弹窗、三段渲染、禁用 API 静态检查
+node verify/host.mjs      # 171 项：扫描、分组、归类、卡名解析、三段检索、卡内脚本、安装自检、路由、工具、备份、目录浏览
+node verify/client.mjs    # 75 项：注册接线、字典一致性、四个页签与浏览弹窗、三段渲染、禁用 API 静态检查
 node verify/perf.mjs      # 7 项预算：300 张卡 + 8000 条记录下量一遍最常走的几条路
 ```
 
