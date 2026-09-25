@@ -240,7 +240,7 @@ check('工具输出顺序：本卡 → 其它错题 → 跨卡', iOwn < iOther &
 check('工具输出含本卡标题', text.includes('状态栏空白'))
 check('工具输出含跨卡卡片名', text.includes('测试卡B'))
 
-check('wrongbook_record 落库', /已记入/.test((await toolMap['wrongbook_record'].execute({ card: '测试卡A', title: '图标错位' }, {})).text))
+check('wrongbook_record 落库', /已归档到错题库/.test((await toolMap['wrongbook_record'].execute({ card: '测试卡A', title: '图标错位' }, {})).text))
 check('wrongbook_update 改状态', /fixed/.test((await toolMap['wrongbook_update'].execute({ id: addA.entry.id, status: 'fixed' }, {})).text))
 
 const avatar = await call('/dsh-wrongbook/avatar', 'GET', undefined, '?card=cards%2F%E6%B5%8B%E8%AF%95%E5%8D%A1A.json')
@@ -684,6 +684,32 @@ check('内置 skill 不能设为自动目标', (await action({ action: 'setAutoR
 
 const autoOff = await action({ action: 'setAutoReflux', skill: '' })
 check('能关掉自动同步', autoOff.ok === true && autoOff.autoReflux === null, JSON.stringify(autoOff.autoReflux))
+
+/*
+ * 归档回执：工具返回的那段文本是 Agent 唯一的信息来源。
+ * 它必须带全「写到哪、写入多少、对方现在共多少」—— 少一项，回复里就少一项。
+ */
+const recordTool = tools.find((d) => d.name === 'wrongbook_record')
+check('注册了 wrongbook_record', !!recordTool)
+
+await action({ action: 'setAutoReflux', skill: 'new-notes' })
+const withSync = await recordTool.execute({ card: 'new-notes', title: '回执断言用例（开同步）', scope: '工具链' })
+check('回执写明已归档', withSync.text.includes('已归档到错题库：'), withSync.text.slice(0, 40))
+check('回执带上分类名', withSync.text.includes('「new-notes」分类'), withSync.text.slice(0, 60))
+check('回执带上条目标题', withSync.text.includes('《回执断言用例（开同步）》'), withSync.text.slice(0, 70))
+check('回执报出写进了哪个 skill', /已写进 skill「new-notes」/.test(withSync.text), withSync.text.split('\n')[1])
+check('回执报出本次条数', /本次新增 \d+ 条/.test(withSync.text), withSync.text.split('\n')[1])
+check('回执报出对方现在共多少', /现在共 \d+ 条/.test(withSync.text), withSync.text.split('\n')[1])
+check(
+  '渲染出来的就是这段原文',
+  recordTool.output.render({}, withSync)[0].text === withSync.text,
+  recordTool.output.render({}, withSync)[0].text.slice(0, 50),
+)
+
+await action({ action: 'setAutoReflux', skill: '' })
+const noSync = await recordTool.execute({ card: 'new-notes', title: '回执断言用例（没开同步）', scope: '工具链' })
+check('没开同步时回执明说', noSync.text.includes('自动同步没开'), noSync.text.split('\n')[1])
+check('没开同步时仍报出归档结果', noSync.text.includes('已归档到错题库：'), noSync.text.slice(0, 40))
 const sizeBefore = fs.readFileSync(refluxFile, 'utf8').length
 await action({ action: 'addEntry', cardKey: 'cards/测试卡A.json', entry: { title: '关掉之后不该再出现' } })
 check(
