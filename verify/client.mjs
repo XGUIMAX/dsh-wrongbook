@@ -346,7 +346,23 @@ const SKILL_LIST = {
 const fetchStub = async (url, init) => {
   const target = String(url)
   if (target.includes('/state')) return { status: 200, ok: true, json: async () => STATE }
-  if (target.includes('/scripts')) return { status: 200, ok: true, json: async () => SCRIPT_SCAN }
+  if (target.includes('/scripts')) {
+    // 面板分两步拿数据：先不带参数要骨架，再带 ?card= 逐张要详情。
+    // stub 也要照这个分，否则逐张那步会拿到骨架、把卡的数据换成空壳。
+    const m = target.match(/[?&]card=([^&]+)/)
+    if (m) {
+      const key = decodeURIComponent(m[1])
+      const card = SCRIPT_SCAN.cards.find((c) => c.key === key)
+      return card
+        ? { status: 200, ok: true, json: async () => ({ ok: true, card }) }
+        : { status: 200, ok: true, json: async () => ({ ok: true, error: 'not found' }) }
+    }
+    return {
+      status: 200,
+      ok: true,
+      json: async () => ({ ok: true, cards: SCRIPT_SCAN.cards.map(({ scripts, special, controllers, patchEntries, ...rest }) => rest), tools: SCRIPT_SCAN.tools }),
+    }
+  }
   if (target.includes('/skills')) return { status: 200, ok: true, json: async () => SKILL_LIST }
   if (target.includes('/action')) {
     let body = {}
@@ -697,7 +713,22 @@ check(
   out.texts.filter((t) => t.includes('张卡')).join(' / '),
 )
 check('卡脚本页每张卡一块', scriptBlocks.length === 2, String(scriptBlocks.length))
-check('卡脚本页列出脚本行', scriptBlocks.length === 2 && rowsOf(scriptBlocks[0]).length === 2, scriptBlocks.length ? String(rowsOf(scriptBlocks[0]).length) : '0')
+check('卡脚本页列出脚本行', scriptBlocks.length === 2 && rowsOf(scriptBlocks[0]).length === 2, scriptBlocks.length ? 'rows=' + rowsOf(scriptBlocks[0]).length + ' keys=' + Object.keys(scriptBlocks[0].props.card || {}).join(',') + ' pending=' + String((scriptBlocks[0].props.card || {}).pending) : '0')
+/*
+ * 逐张盘点：骨架先到、详情一张一张填。
+ * 函数组件的元素 children 是空的，所以直接拿它的 type 当函数调，测各个分支。
+ */
+const blockOf = scriptBlocks[0].type
+const waitBlock = blockOf({ card: { key: 'cards/new.json', name: '刚加进来的卡', pending: true } })
+check('盘点中的卡先把名字摆出来', findByClass(waitBlock, 'dwb-script-wait').length === 1)
+check('盘点中的卡还没有可展开的块', findByType(waitBlock, 'details').length === 0)
+const failedBlock = blockOf({ card: { key: 'cards/bad.json', name: '读不出的卡', error: 'Unexpected token' } })
+check('读不出来时显示原因', findByClass(failedBlock, 'dwb-msg').length === 1)
+
+// 只有名字、什么字段都没有：不该崩，按空处理
+const bareBlock = blockOf({ card: { key: 'cards/bare.json', name: '只有名字' } })
+// bareBlock 本身就是那个 details 元素，findByType 不扫根节点，直接看 type。
+check('缺字段也不崩（按空处理）', bareBlock && bareBlock.type === 'details', String(bareBlock && bareBlock.type))
 check(
   '卡脚本页用该页自己的说明',
   out.texts.some((t) => t.includes('DSH 没有全局脚本槽')),

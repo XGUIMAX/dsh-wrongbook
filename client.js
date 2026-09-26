@@ -99,6 +99,9 @@ window.__ModuleLoader__.load({
       'scripts.hint':
         '卡内自带的自定义脚本与机制条目。DSH 没有全局脚本槽：脚本随卡加载，换一张卡就换一套，所以排查任何一张卡之前先看清它带了什么。',
       'scripts.loading': '正在盘点…（第一次要把卡和工具目录过一遍，之后有缓存）',
+      'scripts.progress': '已盘点',
+      'scripts.cardPending': '盘点中',
+      'scripts.cardFailed': '这张读不出来',
       'scripts.summary': '共 {n} 张卡，其中 {flagged} 张带特化内容',
       'scripts.count': '{n} 个脚本',
       'scripts.specialCount': '特化 {n}',
@@ -304,6 +307,9 @@ window.__ModuleLoader__.load({
       'scripts.hint':
         'Scripts a card ships with, plus the mechanism entries that steer it. DSH has no global script slot: scripts load with the card, so read what a card carries before debugging it.',
       'scripts.loading': 'Taking inventory… (first pass walks the cards and the tools folder; cached after that)',
+      'scripts.progress': 'Checked',
+      'scripts.cardPending': 'checking',
+      'scripts.cardFailed': 'could not read this one',
       'scripts.summary': '{n} cards, {flagged} carrying something special',
       'scripts.count': '{n} scripts',
       'scripts.specialCount': '{n} special',
@@ -513,6 +519,10 @@ window.__ModuleLoader__.load({
       '.dwb-pick{cursor:pointer;gap:6px}',
       '.dwb-pick input[type=checkbox]{flex:none;margin:0}',
       '.dwb-live{color:var(--dsw-alias-state-success-primary);font-size:9px;line-height:1;margin-right:3px}',
+      '.dwb-progress-wrap{display:flex;flex-direction:column;gap:4px;margin:2px 0 8px}',
+      '.dwb-progress{height:4px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);overflow:hidden}',
+      '.dwb-progress-bar{height:100%;background:var(--dsw-alias-state-success-primary);transition:width .18s ease}',
+      '.dwb-script-wait{opacity:.75}',
       '.dwb-log{font-family:ui-monospace,Consolas,monospace;font-size:11px;max-height:132px;overflow:auto;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
       '.dwb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       '.dwb-field{display:flex;flex-direction:column;gap:3px}',
@@ -773,9 +783,24 @@ window.__ModuleLoader__.load({
      * 用户就再也收不起来（或展不开）。默认收起，summary 上写清带了多少特化内容。
      */
     function CardScriptBlock({ card }) {
-      const bits = [t('scripts.count').replace('{n}', card.scripts.length)]
-      if (card.special.length) bits.push(t('scripts.specialCount').replace('{n}', card.special.length))
-      if (card.controllers.length) bits.push(t('scripts.controllerCount').replace('{n}', card.controllers.length))
+      // 盘点中的卡：先把名字摆出来，内容位置留个"盘点中"。逐张回来，逐张替换 ——
+      // 界面立刻有东西，不用盯着一个转圈等全部读完。
+      if (card.pending) {
+        return h(
+          'div',
+          { className: 'dwb-script dwb-script-wait' },
+          h('span', { className: 'dwb-script-name dwb-grow' }, card.name),
+          h('span', { className: 'dwb-chip' }, t('scripts.cardPending')),
+        )
+      }
+      // 字段给默认值：骨架阶段和出错分支都可能只带一部分，不该因此白屏。
+      const scripts = card.scripts || []
+      const special = card.special || []
+      const controllers = card.controllers || []
+      const patchEntries = card.patchEntries || []
+      const bits = [t('scripts.count').replace('{n}', scripts.length)]
+      if (special.length) bits.push(t('scripts.specialCount').replace('{n}', special.length))
+      if (controllers.length) bits.push(t('scripts.controllerCount').replace('{n}', controllers.length))
       return h(
         'details',
         { className: 'dwb-script' },
@@ -786,18 +811,18 @@ window.__ModuleLoader__.load({
           bits.map((bit, i) => h('span', { key: i, className: `dwb-chip${i === 1 ? ' warn' : ''}` }, bit)),
         ),
         card.error ? h('div', { className: 'dwb-msg bad' }, card.error) : null,
-        card.scripts.length
+        scripts.length
           ? h(
               'div',
               { className: 'dwb-scripts' },
-              card.scripts.map((script, i) => h(ScriptRow, { key: i, script })),
+              scripts.map((script, i) => h(ScriptRow, { key: i, script })),
             )
           : h('div', { className: 'dwb-sub' }, t('scripts.none')),
-        card.controllers.length
-          ? h('div', { className: 'dwb-sub' }, `${t('scripts.controllers')}：${card.controllers.join('、')}`)
+        controllers.length
+          ? h('div', { className: 'dwb-sub' }, `${t('scripts.controllers')}：${controllers.join('、')}`)
           : null,
-        card.patchEntries.length
-          ? h('div', { className: 'dwb-sub' }, `${t('scripts.patchEntries')}：${card.patchEntries.join('、')}`)
+        patchEntries.length
+          ? h('div', { className: 'dwb-sub' }, `${t('scripts.patchEntries')}：${patchEntries.join('、')}`)
           : null,
       )
     }
@@ -1266,6 +1291,8 @@ window.__ModuleLoader__.load({
       const [browse, setBrowse] = useState(null)
       const [scriptScan, setScriptScan] = useState(null)
       const [scriptBusy, setScriptBusy] = useState(false)
+      /** 逐张盘点的进度：骨架到手后从 0/total 走到 total/total。 */
+      const [scriptProgress, setScriptProgress] = useState({ done: 0, total: 0 })
       const [reflux, setReflux] = useState(null)
       const [keepCount, setKeepCount] = useState(20)
 
@@ -1374,22 +1401,70 @@ window.__ModuleLoader__.load({
         if (!list.some((c) => c.key === selectedKey)) setSelectedKey(list[0] ? list[0].key : '')
       }
 
-      // 卡脚本盘点按需拉取：它要读几张十几 MB 的卡，不该拖慢每次打开面板。
+      /*
+       * 卡脚本盘点：两步走，为的是**立刻有东西可看**。
+       *
+       * 第一步只要骨架 —— 卡清单和工具脚本都不解析卡内容，几十毫秒就回来，
+       * 界面马上把每张卡摆出来（都标着"盘点中"）。
+       * 第二步一张一张取详情，每回来一张就替换那一行；进度条跟着走。
+       *
+       * 之前是一次拿全部，于是十几张卡读完之前界面只有一个转圈 —— 慢不慢另说，
+       * 那种"什么都没有"的等待没法判断是在干活还是卡死了。
+       */
       useEffect(() => {
         if (view !== 'scripts' || scriptScan || scriptBusy) return undefined
         let alive = true
         setScriptBusy(true)
-        fetch(`${BASE}/scripts`)
-          .then((res) => res.json())
-          .then((body) => {
-            if (alive) setScriptScan(body && body.ok ? body : { cards: [], tools: [], error: (body && body.error) || '' })
-          })
-          .catch((e) => {
-            if (alive) setScriptScan({ cards: [], tools: [], error: String(e && e.message ? e.message : e) })
-          })
-          .finally(() => {
+        ;(async () => {
+          let head = null
+          try {
+            const res = await fetch(`${BASE}/scripts`)
+            head = await res.json()
+          } catch (e) {
+            if (alive) setScriptScan({ cards: [], tools: [], error: String((e && e.message) || e) })
             if (alive) setScriptBusy(false)
-          })
+            return
+          }
+          if (!alive) return
+          if (!head || !head.ok) {
+            setScriptScan({ cards: [], tools: [], error: (head && head.error) || '' })
+            setScriptBusy(false)
+            return
+          }
+          const cards = (head.cards || []).map((c) => ({ ...c, pending: true, scripts: [], special: [], controllers: [], patchEntries: [], initvar: [] }))
+          setScriptScan({ cards, tools: head.tools || [], error: '' })
+          setScriptProgress({ done: 0, total: cards.length })
+          setScriptBusy(false)
+
+          // 逐张取。串行是故意的：并发读几张十几 MB 的卡只会互相拖慢，
+          // 而且串行才看得到"一张一张出来"。
+          for (let i = 0; i < cards.length; i += 1) {
+            if (!alive) return
+            let one = null
+            try {
+              const res = await fetch(`${BASE}/scripts?card=${encodeURIComponent(cards[i].key)}`)
+              one = await res.json()
+            } catch {
+              one = null
+            }
+            if (!alive) return
+            setScriptScan((prev) => {
+              if (!prev) return prev
+              return {
+                ...prev,
+                cards: prev.cards.map((c) =>
+                  c.key === cards[i].key
+                    ? one && one.ok && one.card
+                      ? { ...one.card, pending: false }
+                      : // 拿不到详情就保住原有字段、只标失败：不能用一个空壳把它替换掉。
+                        { ...c, pending: false, error: (one && one.error) || t('scripts.cardFailed') }
+                    : c,
+                ),
+              }
+            })
+            setScriptProgress({ done: i + 1, total: cards.length })
+          }
+        })()
         return () => {
           alive = false
         }
@@ -2224,13 +2299,36 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 className: 'dwb-btn tiny ghost',
                 disabled: scriptBusy,
-                onClick: () => setScriptScan(null),
+                onClick: () => {
+                  setScriptScan(null)
+                  setScriptProgress({ done: 0, total: 0 })
+                },
               },
               t('btn.reload'),
             ),
           ),
           h('div', { className: 'dwb-hint' }, t('scripts.hint')),
           scriptScan && scriptScan.error ? h('div', { className: 'dwb-msg bad' }, scriptScan.error) : null,
+          // 进度条：只在逐张盘点期间出现。它给的是"还剩几张"，不只是"在忙"。
+          scriptProgress.total && scriptProgress.done < scriptProgress.total
+            ? h(
+                'div',
+                { className: 'dwb-progress-wrap' },
+                h(
+                  'div',
+                  { className: 'dwb-progress' },
+                  h('div', {
+                    className: 'dwb-progress-bar',
+                    style: { width: `${Math.round((scriptProgress.done / scriptProgress.total) * 100)}%` },
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'dwb-sub' },
+                  `${t('scripts.progress')} ${scriptProgress.done} / ${scriptProgress.total}`,
+                ),
+              )
+            : null,
           h(
             'div',
             { className: 'dwb-entries' },

@@ -486,8 +486,11 @@ const scripted = {
   },
 }
 fs.writeFileSync(path.join(CARDS, '带脚本的卡.json'), JSON.stringify(scripted), 'utf8')
+// 卡脚本分两步取：先骨架（不解析卡内容），再按 key 拿那一张的详情。
 const scanned = JSON.parse((await call('/dsh-wrongbook/scripts', 'GET')).body)
-const scriptedCard = scanned.cards.find((c) => c.key === 'cards/带脚本的卡.json')
+const cardDetail = async (key) =>
+  JSON.parse((await call('/dsh-wrongbook/scripts', 'GET', undefined, `?card=${encodeURIComponent(key)}`)).body).card
+const scriptedCard = await cardDetail('cards/带脚本的卡.json')
 check('扫得到卡内脚本', !!scriptedCard && scriptedCard.scripts.length === 2, scriptedCard ? String(scriptedCard.scripts.length) : '没扫到这张卡')
 check('外层 raw 包装被剥掉', !!scriptedCard && scriptedCard.scripts.length === 2, '少剥一层就会是 0')
 check(
@@ -498,9 +501,8 @@ check(
 check('停用状态读得出来', !!scriptedCard && scriptedCard.special[0].enabled === false)
 check('控制器条目挑出来', !!scriptedCard && scriptedCard.controllers.includes('主线控制器'), scriptedCard ? scriptedCard.controllers.join(',') : '')
 check('含 json_patch 的条目挑出来', !!scriptedCard && scriptedCard.patchEntries.includes('普通条目'), scriptedCard ? scriptedCard.patchEntries.join(',') : '')
-check('没脚本的卡也照实返回', scanned.cards.some((c) => c.scripts.length === 0))
+check('没脚本的卡也照实返回', (await cardDetail(scanned.cards[0].key)).scripts.length === 0)
 check('工具目录一并扫了', Array.isArray(scanned.tools), String(scanned.tools.length))
-check('统计出带特化内容的卡数', scanned.flagged >= 1, String(scanned.flagged))
 
 /* 备份的删除与清理 */
 const bk = await action({ action: 'backupNow' })
@@ -709,6 +711,23 @@ check('注册了 wrongbook_record', !!recordTool)
 await action({ action: 'setAutoReflux', skill: 'new-notes' })
 const withSync = await recordTool.execute({ card: 'new-notes', title: '回执断言用例（开同步）', scope: '工具链' })
 check('回执写明已归档', withSync.text.includes('已归档到错题库：'), withSync.text.slice(0, 40))
+/*
+ * 卡脚本分两步拿：先骨架（卡清单 + 工具，不解析内容），再带 ?card= 逐张要详情。
+ * 分两步是为了让面板立刻有东西可看 —— 骨架要是也解析了，就等于没分。
+ */
+const head = JSON.parse((await call('/dsh-wrongbook/scripts', 'GET')).body)
+check('骨架返回卡清单', Array.isArray(head.cards) && head.cards.length >= 1, `cards=${(head.cards || []).length}`)
+check('骨架里的卡只有文件信息', !('scripts' in head.cards[0]), Object.keys(head.cards[0] || {}).join(','))
+check('骨架也带上工具脚本', Array.isArray(head.tools), `tools=${(head.tools || []).length}`)
+
+const oneKey = head.cards[0].key
+const one = JSON.parse((await call('/dsh-wrongbook/scripts', 'GET', undefined, `?card=${encodeURIComponent(oneKey)}`)).body)
+check('带 card 就只回那一张', !!one.card && one.card.key === oneKey, JSON.stringify(one.card && one.card.key))
+check('单张才带解析结果', Array.isArray(one.card.scripts), Array.isArray(one.card.scripts) ? 'ok' : 'missing')
+check(
+  '卡名不许跑出目录',
+  (await call('/dsh-wrongbook/scripts', 'GET', undefined, '?card=..%2Fescape.json')).status === 500,
+)
 check('回执带上分类名', withSync.text.includes('「new-notes」分类'), withSync.text.slice(0, 60))
 check('回执带上条目标题', withSync.text.includes('《回执断言用例（开同步）》'), withSync.text.slice(0, 70))
 check('回执报出写进了哪个 skill', /已写进 skill「new-notes」/.test(withSync.text), withSync.text.split('\n')[1])
