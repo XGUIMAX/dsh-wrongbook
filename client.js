@@ -98,7 +98,7 @@ window.__ModuleLoader__.load({
       'backup.keepHint': '超出这个数量的旧备份会被删掉；自动清理的上限是 60 份。',
       'scripts.hint':
         '卡内自带的自定义脚本与机制条目。DSH 没有全局脚本槽：脚本随卡加载，换一张卡就换一套，所以排查任何一张卡之前先看清它带了什么。',
-      'scripts.loading': '正在盘点…（要读几张十几 MB 的卡，第一次会慢一点）',
+      'scripts.loading': '正在盘点…（第一次要把卡和工具目录过一遍，之后有缓存）',
       'scripts.summary': '共 {n} 张卡，其中 {flagged} 张带特化内容',
       'scripts.count': '{n} 个脚本',
       'scripts.specialCount': '特化 {n}',
@@ -303,7 +303,7 @@ window.__ModuleLoader__.load({
       'backup.keepHint': 'Older backups beyond this count are deleted; automatic pruning caps at 60.',
       'scripts.hint':
         'Scripts a card ships with, plus the mechanism entries that steer it. DSH has no global script slot: scripts load with the card, so read what a card carries before debugging it.',
-      'scripts.loading': 'Taking inventory… (this reads a few multi-megabyte cards on the first pass)',
+      'scripts.loading': 'Taking inventory… (first pass walks the cards and the tools folder; cached after that)',
       'scripts.summary': '{n} cards, {flagged} carrying something special',
       'scripts.count': '{n} scripts',
       'scripts.specialCount': '{n} special',
