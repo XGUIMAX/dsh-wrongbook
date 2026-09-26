@@ -54,6 +54,38 @@ const IFRAME_NAMES_TO = '"updateVariablesWith","generateRaw","generate","createC
 const HOST_NAMES_FROM = '"generateRaw", "injectPrompts",'
 const HOST_NAMES_TO = '"generateRaw", "generate", "injectPrompts",'
 
+// ⑥ 实测量出来的第六处 —— 卡读到的其实是**这一层**。
+//
+// 用 console.table 遍历所有 frame 量的（这才是决定性的证据，前面五处都是推断）：
+//   第 0 层(top): TH.generate = undefined, TH.generateRaw = function, window.generate = undefined
+//   第 1 层     : TH.generate = function（从别处继承来的）
+//   第 4 层     : TH.generate = function, window.generate = function  ← 我先前补的 facade
+// 卡跑在第 1 层，它的 window.parent 就是第 0 层 —— 读到 undefined，于是弹提示。
+//
+// 第 0 层对应开场预览那段的组装：显式列了 generateRaw 等四个名字，却没列 generate。
+// 补两处：① 挂同层的 window.generate（委托给它自己的 window.generateRaw）
+//         ② 把 generate 加进 Object.assign 的键
+const PREVIEW_ASSIGN_FROM =
+  'window.TavernHelper = Object.assign({}, original && original.helper, { generateRaw: window.generateRaw,'
+const PREVIEW_ASSIGN_TO =
+  'window.TavernHelper = Object.assign({}, original && original.helper, { generate: window.generate, generateRaw: window.generateRaw,'
+const PREVIEW_GEN_MARK = 'preview layer: window.generate'
+const PREVIEW_INSERT =
+  '\t\t// ' + PREVIEW_GEN_MARK + '\n' +
+  '\t\t// 这层的 TavernHelper 是显式列举的 Object.assign，没列 generate；而卡内脚本经\n' +
+  '\t\t// window.parent 读的就是这一层。generate 委托给同层已有的 generateRaw。\n' +
+  '\t\t;(function () {\n' +
+  '\t\t\tif (typeof window.generate === "function") return;\n' +
+  '\t\t\tif (typeof window.generateRaw !== "function") return;\n' +
+  '\t\t\twindow.generate = function (prompt, options) {\n' +
+  '\t\t\t\tvar config = Object.assign({}, options || {});\n' +
+  '\t\t\t\tif (typeof prompt === "string") { if (config.prompt === undefined) config.prompt = prompt; }\n' +
+  '\t\t\t\telse if (prompt && typeof prompt === "object") Object.assign(config, prompt);\n' +
+  '\t\t\t\treturn window.generateRaw(config);\n' +
+  '\t\t\t};\n' +
+  '\t\t})();\n' +
+  '\t\t'
+
 // iframe 里 generateRaw 已经挂好了，generate 复用它（同样的 config 形状）
 const GEN_FROM = 'window.generateRaw=function(config){return call("generateTavernHelperRaw",{config:copy(config)}).then(function(result){return result.text;});};'
 const FRAME_GEN_MARK = 'window.generate=function(a,b)'
@@ -62,6 +94,30 @@ const GEN_TO =
   'window.generate=function(a,b){var c={};if(typeof a==="string"){c.prompt=a;if(b&&typeof b==="object")Object.assign(c,b);}' +
   'else if(a&&typeof a==="object"){Object.assign(c,a);if(b&&typeof b==="object")Object.assign(c,b);}' +
   'return window.generateRaw(c);};'
+
+// ⑤ 最关键的一处：卡读的是 **window.parent** 的 TavernHelper。
+//    龙娘回廊的 te() = () => { let e = window.parent && window.parent !== window
+//      ? window.parent : window; return { win: e } }，随后 LE() 取
+//      te().win.TavernHelper.generate —— 那是 Tavern UI 那层（父窗口）。
+//    那层的组装在 installTavernHelperFacade(options) 里，它解构出了
+//      const { window, copy, context, request: call, … } = options;
+//    —— **有 RPC 能力（call）**，但没挂过 window.generate。
+//    helper 的属性是 getter（get: () => window[name]），所以补上 window 侧即可。
+const FACADE_ANCHOR = '\t\t\twindow.TavernHelper = helper;'
+const FACADE_MARK = 'host facade: window.generate'
+const FACADE_INSERT =
+  '\t\t\t// ' + FACADE_MARK + '\n' +
+  '\t\t\t// 卡内脚本经 te().win 读的是父窗口（这一层）的 TavernHelper；helper 的属性是\n' +
+  '\t\t\t// getter: () => window[name]，所以这里补 window 侧。用 options 里的 call 发 RPC。\n' +
+  '\t\t\t;(function () {\n' +
+  '\t\t\t\tif (typeof window.generate === "function") return;\n' +
+  '\t\t\t\twindow.generate = function (prompt, options) {\n' +
+  '\t\t\t\t\tvar config = Object.assign({}, options || {});\n' +
+  '\t\t\t\t\tif (typeof prompt === "string") { if (config.prompt === undefined) config.prompt = prompt; }\n' +
+  '\t\t\t\t\telse if (prompt && typeof prompt === "object") Object.assign(config, prompt);\n' +
+  '\t\t\t\t\treturn call("generateTavernHelperRaw", { config: config });\n' +
+  '\t\t\t\t};\n' +
+  '\t\t\t})();\n'
 
 // 用实际插入的文字当标记，别另起一个 —— 否则脚本认不出自己打过补丁
 const MARKER = 'frame helpers: generate / generateRaw / injectPrompts / getCharWorldbookNames'
@@ -122,7 +178,7 @@ const write = (s) => fs.writeFileSync(TARGET, s, 'utf8')
 const stateOf = (t) => {
   const hasInsert = t.includes(MARKER)
   const hasFrameName = t.includes(IFRAME_NAMES_TO)
-  const hasFrameGen = t.includes(FRAME_GEN_MARK)
+  const hasFrameGen = t.includes(FRAME_GEN_MARK) && t.includes(FACADE_MARK) && t.includes(PREVIEW_GEN_MARK)
   if (hasInsert && hasFrameName && hasFrameGen) return 'patched'
   if (hasInsert || hasFrameName || hasFrameGen) return 'partial'
   if (t.includes(ORIGINAL_BLOCK)) return 'original'
@@ -214,6 +270,30 @@ if (mode === 'apply') {
     }
   } else {
     console.log('  ④ 主页面清单已在，跳过')
+  }
+
+  // ⑤ 父窗口那层（installTavernHelperFacade）—— 卡真正读的是这份
+  if (!t.includes(FACADE_MARK)) {
+    if (!t.includes(FACADE_ANCHOR)) {
+      console.log('⑤ facade 锚点没匹配上，拒绝改。')
+      process.exit(1)
+    }
+    t = t.replace(FACADE_ANCHOR, FACADE_ANCHOR + '\n' + FACADE_INSERT)
+    console.log('  ⑤ 已在父窗口那层挂上 window.generate（卡读的就是这份）')
+  } else {
+    console.log('  ⑤ 父窗口那层已在，跳过')
+  }
+
+  // ⑥ 开场预览那层 —— 实测证明卡读的就是它
+  if (!t.includes(PREVIEW_GEN_MARK)) {
+    if (!t.includes(PREVIEW_ASSIGN_FROM)) {
+      console.log('⑥ 开场预览那层的锚点没匹配上，拒绝改。')
+      process.exit(1)
+    }
+    t = t.replace(PREVIEW_ASSIGN_FROM, PREVIEW_INSERT + PREVIEW_ASSIGN_TO)
+    console.log('  ⑥ 已在开场预览那层挂 window.generate 并加进 Object.assign（卡读的就是这层）')
+  } else {
+    console.log('  ⑥ 开场预览那层已在，跳过')
   }
 
   write(t)
