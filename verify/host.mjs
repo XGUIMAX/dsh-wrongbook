@@ -476,6 +476,13 @@ const scripted = {
             { name: '某卡特化脚本', content: 'y'.repeat(500), enabled: false },
           ],
         },
+        // 两条正则抢同一个占位符，其中一条还是停用的 —— 正是 C-06 那种坑的形态。
+        regex_scripts: [
+          { scriptName: '状态栏', findRegex: '/<StatusPlaceHolderImpl\\/>/g', replaceString: 'aaa', disabled: false, markdownOnly: true },
+          { scriptName: '旧状态栏', findRegex: '/<StatusPlaceHolderImpl\\/>/g', replaceString: 'bbb', disabled: true },
+          { scriptName: '对 AI 隐藏', findRegex: '/<pic>([\\s\\S]*?)<\\/pic>/g', replaceString: '', promptOnly: true },
+        ],
+        someUnknownExt: [1, 2, 3],
       },
       character_book: {
         entries: [
@@ -502,6 +509,37 @@ check(
 check('停用状态读得出来', !!scriptedCard && scriptedCard.special[0].enabled === false)
 check('控制器条目挑出来', !!scriptedCard && scriptedCard.controllers.includes('主线控制器'), scriptedCard ? scriptedCard.controllers.join(',') : '')
 check('含 json_patch 的条目挑出来', !!scriptedCard && scriptedCard.patchEntries.includes('普通条目'), scriptedCard ? scriptedCard.patchEntries.join(',') : '')
+/*
+ * 正则脚本是卡里项数最多的一块，之前完全没盘点 —— "这张卡带了什么"只答了其中一部分。
+ */
+const regexCard = await cardDetail('cards/带脚本的卡.json')
+check('盘点了正则脚本', (regexCard.regexes || []).length === 3, String((regexCard.regexes || []).length))
+check(
+  '正则条目报出名字与启停',
+  (regexCard.regexes || []).every((r) => typeof r.name === 'string' && typeof r.disabled === 'boolean'),
+  JSON.stringify((regexCard.regexes || [])[0] || null),
+)
+check('数出停用的正则', regexCard.regexDisabled === 1, String(regexCard.regexDisabled))
+check(
+  '报出抢同一占位符的正则',
+  regexCard.regexClashes.length === 1 && regexCard.regexClashes[0].names.length === 2,
+  JSON.stringify(regexCard.regexClashes),
+)
+check(
+  '正则条目能读出占位符',
+  (regexCard.regexes[0].markers || []).includes('<StatusPlaceHolderImpl/>'),
+  JSON.stringify(regexCard.regexes[0].markers),
+)
+check(
+  '正则条目能读出作用层',
+  regexCard.regexes[0].where.includes('仅显示') && regexCard.regexes[2].where.includes('仅提示词'),
+  regexCard.regexes.map((r) => r.where).join(' / '),
+)
+check(
+  '列出不认识的扩展字段',
+  regexCard.otherExtensions.some((o) => o.key === 'someUnknownExt' && o.items === 3),
+  JSON.stringify(regexCard.otherExtensions),
+)
 check('没脚本的卡也照实返回', (await cardDetail(scanned.cards[0].key)).scripts.length === 0)
 check('工具目录一并扫了', Array.isArray(scanned.tools), String(scanned.tools.length))
 

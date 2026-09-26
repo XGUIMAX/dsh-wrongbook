@@ -107,6 +107,14 @@ window.__ModuleLoader__.load({
       'scripts.specialCount': '特化 {n}',
       'scripts.controllerCount': '控制器 {n}',
       'scripts.none': '这张卡没有自带脚本。',
+      'scripts.regex': '正则脚本',
+      'scripts.regexDisabled': '停用 {n}',
+      'scripts.regexClash': '占位符被抢',
+      'scripts.on': '启用',
+      'scripts.off': '停用',
+      'scripts.otherExt': '其它扩展',
+      'scripts.allOn': '（全部启用，行为取决于顺序）',
+      'scripts.dup': '（同名重复）',
       'scripts.disabled': '停用',
       'scripts.controllers': '控制器条目',
       'scripts.patchEntries': '含 update / json_patch 的条目',
@@ -315,6 +323,14 @@ window.__ModuleLoader__.load({
       'scripts.specialCount': '{n} special',
       'scripts.controllerCount': '{n} controllers',
       'scripts.none': 'This card ships no scripts.',
+      'scripts.regex': 'Regex scripts',
+      'scripts.regexDisabled': '{n} disabled',
+      'scripts.regexClash': 'Contested placeholder',
+      'scripts.on': 'on',
+      'scripts.off': 'off',
+      'scripts.otherExt': 'Other extensions',
+      'scripts.allOn': ' (all enabled — order decides)',
+      'scripts.dup': ' (same name twice)',
       'scripts.disabled': 'off',
       'scripts.controllers': 'Controller entries',
       'scripts.patchEntries': 'Entries carrying update / json_patch',
@@ -798,6 +814,10 @@ window.__ModuleLoader__.load({
       const special = card.special || []
       const controllers = card.controllers || []
       const patchEntries = card.patchEntries || []
+      const regexes = card.regexes || []
+      const regexDisabled = card.regexDisabled || 0
+      const regexClashes = card.regexClashes || []
+      const otherExtensions = card.otherExtensions || []
       const bits = [t('scripts.count').replace('{n}', scripts.length)]
       if (special.length) bits.push(t('scripts.specialCount').replace('{n}', special.length))
       if (controllers.length) bits.push(t('scripts.controllerCount').replace('{n}', controllers.length))
@@ -823,6 +843,53 @@ window.__ModuleLoader__.load({
           : null,
         patchEntries.length
           ? h('div', { className: 'dwb-sub' }, `${t('scripts.patchEntries')}：${patchEntries.join('、')}`)
+          : null,
+        // 正则脚本是卡里项数最多的一块，之前完全没盘点。
+        regexes.length
+          ? h(
+              'div',
+              null,
+              h(
+                'div',
+                { className: 'dwb-sub' },
+                `${t('scripts.regex')}：${regexes.length}${regexDisabled ? `（${t('scripts.regexDisabled').replace('{n}', regexDisabled)}）` : ''}`,
+              ),
+              regexClashes.length
+                ? h(
+                    'div',
+                    { className: 'dwb-msg bad' },
+                    `${t('scripts.regexClash')}：${regexClashes
+                      .map((c) => {
+                        // 成对写（一条渲染、一条对 AI 隐藏）是常见设计，不算问题；
+                        // 只有「全都启用」和「同名重复」才值得盯。
+                        const mark = c.duplicated ? t('scripts.dup') : c.allOn ? t('scripts.allOn') : ''
+                        return `${c.marker} ← ${c.names.join(' / ')}${mark}`
+                      })
+                      .join('；')}`,
+                  )
+                : null,
+              h(
+                'div',
+                { className: 'dwb-scripts' },
+                regexes.map((r, i) =>
+                  h(
+                    'div',
+                    { key: i, className: 'dwb-script-row' },
+                    h('span', { className: `dwb-chip${r.disabled ? ' warn' : ''}` }, r.disabled ? t('scripts.off') : t('scripts.on')),
+                    h('span', { className: 'dwb-grow' }, r.name),
+                    r.markers.length ? h('span', { className: 'dwb-mono dwb-sub' }, r.markers.join(' ')) : null,
+                    r.where ? h('span', { className: 'dwb-sub' }, r.where) : null,
+                  ),
+                ),
+              ),
+            )
+          : null,
+        otherExtensions.length
+          ? h(
+              'div',
+              { className: 'dwb-sub' },
+              `${t('scripts.otherExt')}：${otherExtensions.map((o) => `${o.key}(${o.items})`).join(' · ')}`,
+            )
           : null,
       )
     }
@@ -2290,7 +2357,16 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'dwb-sub dwb-grow' },
               scriptScan
-                ? t('scripts.summary').replace('{n}', scriptScan.cards.length).replace('{flagged}', scriptScan.flagged)
+                ? (() => {
+                    // flagged 自己数：骨架阶段服务端不解析卡内容，也就给不出这个数。
+                    // 之前直接读 scriptScan.flagged，界面上显示的是 undefined。
+                    const flagged = scriptScan.cards.filter(
+                      (c) => (c.special || []).length || (c.controllers || []).length || (c.patchEntries || []).length,
+                    ).length
+                    const pending = scriptScan.cards.filter((c) => c.pending).length
+                    const shown = pending === scriptScan.cards.length ? '—' : String(flagged)
+                    return t('scripts.summary').replace('{n}', scriptScan.cards.length).replace('{flagged}', shown)
+                  })()
                 : t('scripts.loading'),
             ),
             h(
