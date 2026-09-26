@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const react = require('react')
     const h = react.createElement
-    const { useState, useEffect, useCallback, useMemo, Fragment } = react
+    const { useState, useEffect, useRef, useCallback, useMemo, Fragment } = react
 
     const NS = 'settings.dsh-wrongbook'
     const BASE = '/dsh-wrongbook'
@@ -1410,10 +1410,16 @@ window.__ModuleLoader__.load({
        *
        * 之前是一次拿全部，于是十几张卡读完之前界面只有一个转圈 —— 慢不慢另说，
        * 那种"什么都没有"的等待没法判断是在干活还是卡死了。
+       *
+       * 启动标志用 ref，且**不进依赖数组**。放 state 里会踩一个坑：effect 第一件事
+       * 就是 setScriptBusy(true)，那会让依赖变化、触发 cleanup，把正在跑的异步体
+       * 掐掉。改成 await 写法之后这个竞态几乎必然触发，表现就是「一直在盘点、
+       * 一张卡都不出来」。只跑一次的活，不该挂在会被自己改动的依赖上。
        */
+      const scriptStarted = useRef(false)
       useEffect(() => {
-        if (view !== 'scripts' || scriptScan || scriptBusy) return undefined
-        let alive = true
+        if (view !== 'scripts' || scriptStarted.current) return undefined
+        scriptStarted.current = true
         setScriptBusy(true)
         ;(async () => {
           let head = null
@@ -1421,11 +1427,10 @@ window.__ModuleLoader__.load({
             const res = await fetch(`${BASE}/scripts`)
             head = await res.json()
           } catch (e) {
-            if (alive) setScriptScan({ cards: [], tools: [], error: String((e && e.message) || e) })
-            if (alive) setScriptBusy(false)
+            setScriptScan({ cards: [], tools: [], error: String((e && e.message) || e) })
+            setScriptBusy(false)
             return
           }
-          if (!alive) return
           if (!head || !head.ok) {
             setScriptScan({ cards: [], tools: [], error: (head && head.error) || '' })
             setScriptBusy(false)
@@ -1439,7 +1444,6 @@ window.__ModuleLoader__.load({
           // 逐张取。串行是故意的：并发读几张十几 MB 的卡只会互相拖慢，
           // 而且串行才看得到"一张一张出来"。
           for (let i = 0; i < cards.length; i += 1) {
-            if (!alive) return
             let one = null
             try {
               const res = await fetch(`${BASE}/scripts?card=${encodeURIComponent(cards[i].key)}`)
@@ -1447,7 +1451,6 @@ window.__ModuleLoader__.load({
             } catch {
               one = null
             }
-            if (!alive) return
             setScriptScan((prev) => {
               if (!prev) return prev
               return {
@@ -1465,10 +1468,7 @@ window.__ModuleLoader__.load({
             setScriptProgress({ done: i + 1, total: cards.length })
           }
         })()
-        return () => {
-          alive = false
-        }
-      }, [view, scriptScan, scriptBusy])
+      }, [view])
 
       const ownEntries = useMemo(() => {
         return entries
@@ -2300,6 +2300,8 @@ window.__ModuleLoader__.load({
                 className: 'dwb-btn tiny ghost',
                 disabled: scriptBusy,
                 onClick: () => {
+                  // 放行下一次：ref 挡住的是重复启动，这里是有意再来一遍。
+                  scriptStarted.current = false
                   setScriptScan(null)
                   setScriptProgress({ done: 0, total: 0 })
                 },

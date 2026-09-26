@@ -133,6 +133,7 @@ if (promptSection) {
   const promptText = promptSection.text()
   check('提示段给出三段检索顺序', promptText.includes('① 本分类 → ② 其它错题 → ③ 跨卡查询'))
   check('提示段要求归档后回报「已归档」', promptText.includes('已归档到错题库'))
+  check('提示段要求回执加粗', promptText.includes('整句用') && promptText.includes('加粗'))
   check('提示段点名两个工具', promptText.includes('wrongbook_lookup') && promptText.includes('wrongbook_record'))
   check('提示段禁止再写进 md 文件', promptText.includes('不要再把错题写进 md'))
   check('提示段把转 MVU 纳入必查场景', promptText.includes('转 MVU 版'))

@@ -380,9 +380,24 @@ const results = []
 const check = (label, ok, extra) => results.push({ label, ok, extra })
 
 /* 加载模块 */
-new Function('window', 'document', 'fetch', fs.readFileSync(SRC, 'utf8'))(win, doc, fetchStub)
+const SRC_TEXT = fs.readFileSync(SRC, 'utf8')
+new Function('window', 'document', 'fetch', SRC_TEXT)(win, doc, fetchStub)
 check('调用了 __ModuleLoader__.load', !!captured)
 check('模块 id = dsh-wrongbook', !!captured && captured.id === 'dsh-wrongbook', captured && captured.id)
+
+/*
+ * 一次性的加载 effect 不能把"启动标志"放进依赖数组。
+ *
+ * 那个 bug 验收测不出来（harness 不跑 React 的 effect 生命周期）：effect 自己
+ * 第一件事就是 setScriptBusy(true)，放进依赖就会触发 cleanup 把正在跑的异步体
+ * 掐掉，界面永远停在"正在盘点"。只能静态看一眼。
+ */
+check('盘点的启动标志用 ref，不用 state', /const scriptStarted = useRef\(/.test(SRC_TEXT))
+check(
+  '盘点的 effect 不挂在会被自己改动的依赖上',
+  SRC_TEXT.includes('}, [view])') && !SRC_TEXT.includes('[view, scriptScan, scriptBusy]'),
+  SRC_TEXT.includes('[view, scriptScan, scriptBusy]') ? '依赖里还有 scriptBusy' : '',
+)
 
 const plugin = captured.factory((name) => {
   if (name === 'react') return React
