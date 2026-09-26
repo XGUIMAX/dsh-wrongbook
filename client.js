@@ -1478,15 +1478,18 @@ window.__ModuleLoader__.load({
        * 之前是一次拿全部，于是十几张卡读完之前界面只有一个转圈 —— 慢不慢另说，
        * 那种"什么都没有"的等待没法判断是在干活还是卡死了。
        *
-       * 启动标志用 ref，且**不进依赖数组**。放 state 里会踩一个坑：effect 第一件事
-       * 就是 setScriptBusy(true)，那会让依赖变化、触发 cleanup，把正在跑的异步体
-       * 掐掉。改成 await 写法之后这个竞态几乎必然触发，表现就是「一直在盘点、
-       * 一张卡都不出来」。只跑一次的活，不该挂在会被自己改动的依赖上。
+       * 守卫用 `scriptScan` 本身，不用启动标志。
+       *
+       * 先前用过一个 ref 当"只跑一次"的标志 —— 它能挡住自我触发，但副作用是
+       * 「重新载入」按钮失效了：那个按钮把 scriptScan 置空，而 ref 仍是 true，
+       * 于是 effect 不重跑，必须切走页签再切回来（view 变了）才会加载。
+       *
+       * `scriptScan` 是**数据**不是启动标志，用它守卫两头都对：
+       * 有数据就不重复加载；清空就重新加载。加载途中 it 会被赋值多次，
+       * 但每次都被守卫挡住，不会自我触发。
        */
-      const scriptStarted = useRef(false)
       useEffect(() => {
-        if (view !== 'scripts' || scriptStarted.current) return undefined
-        scriptStarted.current = true
+        if (view !== 'scripts' || scriptScan) return undefined
         setScriptBusy(true)
         ;(async () => {
           let head = null
@@ -1535,7 +1538,7 @@ window.__ModuleLoader__.load({
             setScriptProgress({ done: i + 1, total: cards.length })
           }
         })()
-      }, [view])
+      }, [view, scriptScan])
 
       const ownEntries = useMemo(() => {
         return entries
@@ -2376,8 +2379,7 @@ window.__ModuleLoader__.load({
                 className: 'dwb-btn tiny ghost',
                 disabled: scriptBusy,
                 onClick: () => {
-                  // 放行下一次：ref 挡住的是重复启动，这里是有意再来一遍。
-                  scriptStarted.current = false
+                  // 清空即重新加载：守卫看的就是它。
                   setScriptScan(null)
                   setScriptProgress({ done: 0, total: 0 })
                 },

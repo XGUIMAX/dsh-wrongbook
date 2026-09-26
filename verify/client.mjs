@@ -391,12 +391,24 @@ check('模块 id = dsh-wrongbook', !!captured && captured.id === 'dsh-wrongbook'
  * 那个 bug 验收测不出来（harness 不跑 React 的 effect 生命周期）：effect 自己
  * 第一件事就是 setScriptBusy(true)，放进依赖就会触发 cleanup 把正在跑的异步体
  * 掐掉，界面永远停在"正在盘点"。只能静态看一眼。
+ *
+ * 后来踩了它的反面：改用 ref 当"只跑一次"的标志之后，依赖只剩 [view]，
+ * 「重新载入」就失效了 —— 按钮清空 scriptScan 但 ref 还是 true，必须切页签
+ * 让 view 变化才会重跑。两头都对的做法是用数据本身当守卫。这两条锁定它。
  */
-check('盘点的启动标志用 ref，不用 state', /const scriptStarted = useRef\(/.test(SRC_TEXT))
+check(
+  '盘点的守卫用 scriptScan 本身，不依赖自写的启动标志',
+  /view !== 'scripts' \|\| scriptScan/.test(SRC_TEXT) && !/const scriptStarted/.test(SRC_TEXT),
+  /const scriptStarted/.test(SRC_TEXT) ? '还有 scriptStarted（会让「重新载入」失效）' : '',
+)
 check(
   '盘点的 effect 不挂在会被自己改动的依赖上',
-  SRC_TEXT.includes('}, [view])') && !SRC_TEXT.includes('[view, scriptScan, scriptBusy]'),
+  SRC_TEXT.includes('}, [view, scriptScan])') && !SRC_TEXT.includes('[view, scriptScan, scriptBusy]'),
   SRC_TEXT.includes('[view, scriptScan, scriptBusy]') ? '依赖里还有 scriptBusy' : '',
+)
+check(
+  '「重新载入」清空数据即可重跑（不需要额外放行动作）',
+  SRC_TEXT.includes('setScriptScan(null)') && !SRC_TEXT.includes('scriptStarted.current = false'),
 )
 
 const plugin = captured.factory((name) => {

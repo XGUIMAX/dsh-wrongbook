@@ -276,7 +276,7 @@ verify/        两套验收脚本
 
 ```bash
 node verify/host.mjs      # 259 项：扫描、分组、归类、卡名解析、三段检索、卡内脚本、安装自检、skill 回流与删除、路由、工具、备份
-node verify/client.mjs    # 109 项：注册接线、字典一致性、四个页签与两个弹窗、三段渲染、禁用 API 静态检查
+node verify/client.mjs    # 110 项：注册接线、字典一致性、四个页签与两个弹窗、三段渲染、禁用 API 静态检查
 node verify/perf.mjs      # 9 项预算：300 张卡 + 8000 条记录下量一遍最常走的几条路
 node verify/live.mjs      # 只读核对**真实数据**：错题库 ↔ 回流过的 skill 还对不对得上
 ```
