@@ -101,7 +101,11 @@ check(
 )
 mod.apply(ctx)
 const toolMap = Object.fromEntries(tools.map((d) => [d.name, d]))
-check('注册了 6 条路由', routes.length === 6, routes.map((r) => r.path).join(', '))
+check('注册了 7 条路由', routes.length === 7, routes.map((r) => r.path).join(', '))
+// 数字之外再钉住具体路径 —— 加路由时数字会对不上，但漏改期望列表就不会被这条挡住
+for (const want of ['/dsh-wrongbook/state', '/dsh-wrongbook/avatar', '/dsh-wrongbook/list', '/dsh-wrongbook/scripts', '/dsh-wrongbook/skills', '/dsh-wrongbook/patch', '/dsh-wrongbook/action']) {
+  check('路由存在 ' + want, routes.some((r) => r.path === want), want)
+}
 check('注册了 3 个工具', tools.length === 3, tools.map((d) => d.name).join(', '))
 
 /* 文本文件不能带 BOM。

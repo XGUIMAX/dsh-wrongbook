@@ -36,6 +36,17 @@ window.__ModuleLoader__.load({
       'btn.save': '保存',
       'btn.reload': '重新载入',
       'btn.rescan': '重新扫描卡片目录',
+      'btn.patchHost': '一键重打宿主补丁',
+      // 宿主补丁改的是 apps/dsh-tavern/ 下的文件，DSH 升级会整份替换 —— 补丁静默失效，
+      // 不报错，只是功能悄悄回到补丁前。所以升级后跑一次。
+      'patch.usage': '用法（升级后跑一次）：先「检查」看哪些失效，再「重打」自动补齐，最后重启 DSH 生效。',
+      'patch.hint': '宿主补丁会被 DSH 升级覆盖。',
+      'ok.patchCheck': '检查完成，见下方输出',
+      'ok.patchApply': '已重打，重启 DSH 后生效',
+      'ok.patchNone': '全部就位，无需重打',
+      'err.patch': '重打失败',
+      'btn.patchCheck': '检查补丁状态',
+      'btn.patchApply': '重打补丁',
       'btn.add': '新增条目',
       'btn.backup': '手动备份',
       'btn.openData': '打开数据目录',
@@ -252,6 +263,15 @@ window.__ModuleLoader__.load({
       'btn.save': 'Save',
       'btn.reload': 'Reload',
       'btn.rescan': 'Rescan card directory',
+      'btn.patchHost': 'Reapply host patches',
+      'patch.usage': 'After a DSH upgrade, once: Check to see which patches went stale, Reapply to restore them, then restart DSH.',
+      'patch.hint': 'A DSH upgrade replaces the host files the patches edit.',
+      'ok.patchCheck': 'Check finished, see output below',
+      'ok.patchApply': 'Reapplied, effective after restarting DSH',
+      'ok.patchNone': 'All in place, nothing to reapply',
+      'err.patch': 'Reapply failed',
+      'btn.patchCheck': 'Check patches',
+      'btn.patchApply': 'Reapply patches',
       'btn.add': 'New entry',
       'btn.backup': 'Backup now',
       'btn.openData': 'Open data directory',
@@ -467,6 +487,11 @@ window.__ModuleLoader__.load({
       '.dwb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.dwb-col{display:flex;flex-direction:column;gap:6px;min-width:0}',
       '.dwb-grow{flex:1 1 auto;min-width:0}',
+  // 宿主补丁那条用法行 + 输出块。提示要一直可见（不藏在 title 里），所以单独一行。
+  '.dwb-note{margin-top:8px;font-size:12px;line-height:1.6;color:var(--dsw-alias-text-tertiary,rgba(128,128,128,.95))}',
+  '.dwb-patch-out{margin-top:8px;border:1px solid var(--dsw-alias-border-secondary,rgba(128,128,128,.3));border-radius:8px;padding:8px 10px}',
+  '.dwb-patch-out>summary{cursor:pointer;font-size:12px;list-style:none;outline:none;color:var(--dsw-alias-text-secondary)}',
+  '.dwb-pre{margin:8px 0 0;padding:8px;max-height:260px;overflow:auto;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--dsw-alias-bg-base,rgba(128,128,128,.08));border-radius:6px}',
       '.dwb-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;transition:border-color .15s ease}',
       '.dwb-btn:hover:not(:disabled){border-color:var(--dsw-alias-brand-primary)}',
       '.dwb-btn:disabled{opacity:.45;cursor:not-allowed}',
@@ -517,6 +542,11 @@ window.__ModuleLoader__.load({
       '.dwb-ava{width:30px;height:30px;border-radius:8px;object-fit:cover;flex:none;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}',
       '.dwb-ava-fb{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}',
       '.dwb-item-name{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  // 徽章不许被压 —— 卡名那一列是 flex:1，窄的时候会把 CountChips 挤到名字上，
+  // 看起来就是两个徽章叠在一起。给文字列加 min-width:0、给徽章加 flex:0 0 auto。
+  '.dwb-item>.dwb-col{min-width:0}',
+  '.dwb-item>.dwb-row{gap:4px;flex-wrap:nowrap;min-width:0}',
+  '.dwb-item .dwb-chip{flex:0 0 auto;white-space:nowrap}',
       '.dwb-item-sub{font-size:10px;color:var(--dsw-alias-label-secondary)}',
       '.dwb-entry{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);padding:10px 11px;display:flex;flex-direction:column;gap:7px}',
       '.dwb-entry.fixed{opacity:.78}',
@@ -1799,6 +1829,40 @@ window.__ModuleLoader__.load({
         if (res) setMessage({ kind: 'ok', text: t('ok.rescan').replace('{n}', res.scanned) })
       }, [run])
 
+      /* ------------------------------------------------- 宿主补丁 */
+
+      // 宿主补丁改的是 apps/dsh-tavern/ 下的文件，而 DSH 升级是整份替换 ——
+      // 补丁会静默失效（不报错，只是功能悄悄回到补丁前）。所以在这里给一个按钮，
+      // 不用去命令行跑 patch-all.mjs。顺序（源码补丁 → build → 改 lib 的补丁）
+      // 由 host 侧的脚本自己保证。
+      const [patchOut, setPatchOut] = useState(null)
+      const [patchBusy, setPatchBusy] = useState(false)
+      const patchHost = useCallback(
+        async (apply) => {
+          setPatchBusy(true)
+          try {
+            const res = await fetch(`${BASE}/patch`, { method: apply ? 'POST' : 'GET' })
+            const payload = await res.json()
+            const out = String(payload.output || payload.error || '（无输出）')
+            setPatchOut(out)
+            if (!payload.ok) {
+              setMessage({ kind: 'err', text: t('err.patch') + '：' + String(payload.error || '') })
+            } else if (!apply) {
+              setMessage({ kind: 'ok', text: t('ok.patchCheck') })
+            } else {
+              // 脚本在"没有需要重打的"时也会打印「全部就位」，据此换一句话
+              const nothing = /全部就位。$/.test(out.trim()) || out.includes('没有需要重打的')
+              setMessage({ kind: 'ok', text: nothing ? t('ok.patchNone') : t('ok.patchApply') })
+            }
+          } catch (e) {
+            setMessage({ kind: 'err', text: t('err.patch') + '：' + ((e && e.message) || String(e)) })
+          } finally {
+            setPatchBusy(false)
+          }
+        },
+        [t],
+      )
+
       /* ------------------------------------------------- 回流到 Skill */
 
       /** 一条条目落进哪个范围 —— 决定回流传哪些。 */
@@ -2108,11 +2172,47 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: rescan, disabled: busy }, t('btn.rescan')),
           h(
             'button',
+            {
+              type: 'button',
+              className: 'dwb-btn ghost',
+              onClick: () => void patchHost(true),
+              disabled: patchBusy || busy,
+              title: t('patch.usage'),
+            },
+            t('btn.patchHost'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwb-btn ghost',
+              onClick: () => void patchHost(false),
+              disabled: patchBusy || busy,
+            },
+            t('btn.patchCheck'),
+          ),
+          h(
+            'button',
             { type: 'button', className: 'dwb-btn ghost', onClick: openReflux, disabled: busy },
             autoReflux ? h('span', { className: 'dwb-live', title: autoBar() }, '●') : null,
             t('reflux.open'),
           ),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => void load() }, t('btn.reload')),
+          // 用法行：升级后跑一次。宿主补丁会被 DSH 升级覆盖，这条提示要一直看得见，
+          // 不能只藏在按钮的 title 里。
+          h(
+            'div',
+            { className: 'dwb-note' },
+            t('patch.usage'),
+          ),
+          patchOut
+            ? h(
+                'details',
+                { className: 'dwb-patch-out' },
+                h('summary', null, t('btn.patchHost')),
+                h('pre', { className: 'dwb-pre' }, patchOut),
+              )
+            : null,
         ),
         reflux
           ? h(RefluxModal, {
