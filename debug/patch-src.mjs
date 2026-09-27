@@ -159,11 +159,33 @@ if (mode === 'apply') {
   let o = read(OPENING)
   const steps = []
 
+  // 精确改写：定位 → 校验唯一性 → 用 slice 拼接。
+  //
+  // 不能用 `text.replace(from, to)` —— 它替换的是**第一处**，而这里的三处
+  // generate 包装里有好几行缩进完全相同的代码（比如
+  // `else if (prompt && typeof prompt === "object") Object.assign(config, prompt);`）。
+  // 锚点不唯一时 replace 会静默改错地方，而结果看起来一切正常。实测踩过一次：
+  // 给 ⑤ 加归一化时改了 GEN_NORM_JS 里的那一行，⑤ 本身没动。
+  //
+  // 所以：锚点出现 2 次以上就直接拒绝，宁可报错也不要改错。
   const sub = (text, from, to, label) => {
-    if (text.includes(to)) { steps.push('  · ' + label + ' 已在，跳过'); return text }
-    if (!text.includes(from)) { steps.push('  ✗ ' + label + ' 锚点没匹配上'); return null }
+    if (text.includes(to)) {
+      steps.push('  · ' + label + ' 已在，跳过')
+      return text
+    }
+    const first = text.indexOf(from)
+    if (first < 0) {
+      steps.push('  ✗ ' + label + ' 锚点没匹配上')
+      return null
+    }
+    if (text.indexOf(from, first + 1) >= 0) {
+      const line = text.slice(0, first).split('\n').length
+      steps.push('  ⚠ ' + label + ' 锚点不唯一（首次出现于第 ' + line + ' 行），拒绝改写')
+      steps.push('      这个锚点太短或太通用 —— 加长它，别让 replace 替你猜')
+      return null
+    }
     steps.push('  ✓ ' + label)
-    return text.replace(from, to)
+    return text.slice(0, first) + to + text.slice(first + from.length)
   }
 
   m = sub(m, A1_FROM, A1_TO, '① 四个 helper 实现')
