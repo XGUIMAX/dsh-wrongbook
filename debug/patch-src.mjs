@@ -19,6 +19,28 @@ const MARK = 'helper patch (src)' // 六处共用的标记，用于识别与还�
 
 // ① 消息 iframe：四个 helper 的实现 —— 必须插在 `});` **之后**（那是 createTransport 的收尾，
 // 之后才是语句位置；插在它之前等于落进对象字面量内部 → Unexpected token ';'）
+// ⑦⑧ 创意工坊域名例外 —— 原来单独打在 lib/client.js 上，但那样会让 `check:client`
+//      永远报"已过期"（src 有补丁、lib 是 build 产物 + 注入，两者对不上）。迁进 src 后
+//      lib/ 就纯粹是构建产物。
+//
+// 背景：Tavern 向卡片 iframe 注入静态资源代理，把任何 https:// 的 src 改写成
+// `/api/dsh-tavern/static-assets?url=<encoded>`。创意工坊用「自己被加载的地址」构造
+// Discord 回调（window.location.origin + pathname），被代理后拿到宿主本地地址，
+// Discord 判 redirect_uri 无效、登录失败。这两处加域名例外让它保持原域名加载。
+const WS_DOMAIN = 'cloudflare-workshop.saugrodep.workers.dev'
+
+// ⑦ 静态重写函数（源码里是可读写法，带空格）
+const WS_A_FROM =
+  'return /^https:\\/\\//i.test(source) ? "/api/dsh-tavern/static-assets?url=" + encodeURIComponent(source) : source;'
+const WS_A_TO =
+  'return /^https:\\/\\//i.test(source) && source.indexOf("https://' +
+  WS_DOMAIN +
+  '/") !== 0 ? "/api/dsh-tavern/static-assets?url=" + encodeURIComponent(source) : source;'
+
+// ⑧ shim 里的 proxy（在字符串里，紧凑写法）。用 String.raw 免得反斜杠层数算错。
+const WS_B_FROM = String.raw`function proxy(value){var source=String(value||"");return /^https:\\/\\//i.test(source)?"/api/dsh-tavern/static-assets?url="+encodeURIComponent(source):source;}`
+const WS_B_TO = String.raw`function proxy(value){var source=String(value||"");return /^https:\\/\\//i.test(source)&&source.indexOf("https://${WS_DOMAIN}/")!==0?"/api/dsh-tavern/static-assets?url="+encodeURIComponent(source):source;}`
+
 const A1_FROM = '\t\t\t});\n\t\t\tconst call = function (method, args) {'
 const A1_TO =
   A1_FROM + '\n' +
@@ -139,6 +161,10 @@ if (mode === 'apply') {
   if (m === null) { console.log(steps.join('\n')); process.exit(1) }
   o = sub(o, A6_FROM, A6_TO, '⑥ 开场预览层挂 window.generate')
   if (o === null) { console.log(steps.join('\n')); process.exit(1) }
+  m = sub(m, WS_A_FROM, WS_A_TO, '⑦ 创意工坊域名例外（静态重写函数）')
+  if (m === null) { console.log(steps.join('\n')); process.exit(1) }
+  m = sub(m, WS_B_FROM, WS_B_TO, '⑧ 创意工坊域名例外（shim 的 proxy）')
+  if (m === null) { console.log(steps.join('\n')); process.exit(1) }
 
   write(MAIN, m)
   write(OPENING, o)
