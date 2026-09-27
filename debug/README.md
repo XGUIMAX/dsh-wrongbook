@@ -70,7 +70,7 @@ node debug/patch-all.mjs --apply  # 缺的自动重打
 
 | 顺序 | 脚本 | 改哪里 |
 | --- | --- | --- |
-| **1** | `patch-src.mjs` | `src/client/main.js` + `src/client/opening-preview.js`（**八处**） |
+| **1** | `patch-src.mjs` | `src/client/main.js` + `src/client/opening-preview.js`（**九处**） |
 | **2** | `bin/build-tavern-client.mjs` | 重建 `lib/client.js` —— **会覆盖 `lib/` 上的一切直接注入** |
 | **3** | `patch.mjs` | `lib/domain/tavern-helper-scripts.js` |
 | **4** | `patch-test.mjs` | `lib/domain/card-response-test.js` |
@@ -81,14 +81,42 @@ node debug/patch-all.mjs --apply  # 缺的自动重打
 
 | 脚本 | 改的文件 | 作用 |
 | --- | --- | --- |
-| `patch-src.mjs` | `src/client/*.js`（**源码，八处**） | ① 消息 iframe 的四个 helper；②③ 同层的 `generate`；④⑤ facade 清单与 `window.generate`；⑥ 开场预览层；⑦⑧ 创意工坊域名例外 |
-| `verify-srcpatch.mjs` | —— | 断言八处同时进了源码和产物、**三处 `generate` 包装的归一化数量正确**（main.js 2 处、opening-preview.js 1 处）、旧 lib 标记已清除 |
+| `patch-src.mjs` | `src/client/*.js`（**源码，九处**） | ① 消息 iframe 的四个 helper；②③ 同层的 `generate`；④⑤ facade 清单与 `window.generate`；⑥ 开场预览层；⑦⑧ 创意工坊域名例外；⑨ 补 `frame-sizing` 的两行 include（宿主漏了） |
+| `verify-srcpatch.mjs` | —— | 断言**九处**同时进了源码和产物、**三处 `generate` 包装的归一化数量正确**（main.js 2 处、opening-preview.js 1 处）、**产物里含升级带进来的五个符号**、**`include` 总数 ≥40**、旧 lib 标记已清除 |
 | `workshop-direct/patch.mjs` | `lib/client.js` | 创意工坊域名直连（否则 Build / 人设 / 拓展 / 世界书 都是空的） |
 | `patch.mjs` | `domain/tavern-helper-scripts.js` | 放开 MVU 卡（卡内无脚本的）的纯 API 测试 |
 | `patch-test.mjs` | `domain/card-response-test.js` | 超时记录里保留前台正文 |
 | `patch-card-generate.mjs` | **卡内脚本** | 给龙娘回廊补 `generate` 并适配宿主的 `ordered_prompts` 契约；**不受升级影响**。判据是"接管 + 自有标记"（`__dshNormalized`），不是"存在就不管" —— 见下节 |
 | ~~`patch-frame-helper.mjs`~~ | ~~`lib/client.js`~~ | **已退役** —— 六处补丁住进 `src/` 后由 build 带进 `lib/`，它的旧标记检测会误报「只打了一半」，属正常，别去"修" |
 | ~~`workshop-direct/patch.mjs`~~ | ~~`lib/client.js`~~ | **已退役** —— 域名例外并入 `patch-src.mjs` 的 ⑦⑧。跑它会让 `check:client` 重新报"已过期" |
+
+### 三条已经踩过的坑（都是"看起来正常"的那种）
+
+**① 用旧备份整体覆盖 → 把宿主升级一起回滚了。**
+
+`*.bak-srcpatch` 是"第一次打补丁前"拍的快照，而升级会整份替换 `apps/dsh-tavern/`。备份一旦早于某次升级，覆盖就等于回退升级 —— 实测抹掉了 `@include-domain indexed-array.js` 等三行，缺 `createIndexedArrayApi`，**整个前端崩**（不只是某个功能坏）。
+
+**要重置就用 `--revert`** —— 它按锚点只撤本脚本加的东西，宿主内容一律保留。判据（revert → apply 往返）：
+
+```bash
+grep -c "^\s*//\s*@include" src/client/main.js   # 40 → 38（只少 ⑨ 那两条）→ 40
+```
+
+**38 而不是 35**，说明升级带进来的 `indexed-array` 那三行没被碰。
+
+**② `replace` 静默替换第一处 → 改错位置而日志说成功。**
+
+三处 `generate` 包装的代码几乎相同，一行缩进一样的 `else if (prompt && ...) Object.assign(config, prompt);` 在多个包装里都有。`sub()` 现在**拒绝不唯一的锚点并报出重复行号**，改写改用 `slice` 拼接。
+
+**同类判据**：改完数命中数 —— `grep -c "config.ordered_prompts =" main.js` 期望 2、`opening-preview.js` 期望 1。
+
+**③ 判据没跟上改动 → 绿灯的范围变小了，而绿灯看起来一样。**
+
+补丁从六处长到九处，检查还停在六处 —— ⑨ 有没有落进产物**没有任何断言覆盖**，输出照样 `[ ok ]`。**失败会喊，缩小不会。**
+
+**现在的判据**：数量跟着 `checks.length` 走；另外两条有判别力的断言 —— **产物里查升级带进来的符号**（缺文件产生合法 JS，构建和语法都过）、**`include` 总数基线 40**（掉下来就说明被旧备份覆盖过）。
+
+**注意判据要分形态**：`@include` 是构建时**展开**的，产物里搜不到那行文本 —— 源码列查指令、产物列查展开后的符号。**写成一样会在正常的树上报失败**，而人倾向于相信断言，于是去改本来对的东西。
 
 ### 三处 `generate` 包装必须一致
 
