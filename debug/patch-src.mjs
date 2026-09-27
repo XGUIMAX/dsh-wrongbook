@@ -195,12 +195,31 @@ if (mode === 'apply') {
 }
 
 if (mode === 'revert') {
+  // 按锚点还原 —— 只撤本脚本加的东西，**宿主升级带进来的内容一律保留**。
+  //
+  // ⚠ 不要用 `*.bak-srcpatch` 之类的整体备份去覆盖源文件！那些备份是"第一次打补丁前"
+  //   拍的，而 DSH 升级会整份替换 apps/dsh-tavern/ —— 备份一旦过期，覆盖就等于把
+  //   宿主升级一起回滚。实测踩过一次：抹掉了升级带进来的
+  //   `@include-domain indexed-array.js` 等三行，缺 createIndexedArrayApi，
+  //   整个客户端 bundle 一初始化就 ReferenceError（前端全崩）。
+  //   要重置就用这个 --revert。
   let m = read(MAIN)
   let o = read(OPENING)
-  m = m.replace(A1_TO, A1_FROM).replace(A2_TO, A2_FROM).replace(A3_TO, A3_FROM).replace(A4_TO, A4_FROM).replace(A5_TO, A5_FROM)
+  m = m
+    .replace(A1_TO, A1_FROM)
+    .replace(A2_TO, A2_FROM)
+    .replace(A3_TO, A3_FROM)
+    .replace(A4_TO, A4_FROM)
+    .replace(A5_TO, A5_FROM)
+    .replace(WS_A_TO, WS_A_FROM)
+    .replace(WS_B_TO, WS_B_FROM)
+    .replace(A9_TO, A9_FROM)
   o = o.replace(A6_TO, A6_FROM)
   write(MAIN, m)
   write(OPENING, o)
-  console.log('已按锚点还原源码。')
+  console.log('已按锚点还原源码（宿主升级带进来的内容未动）。')
+  console.log('')
+  console.log('提示：如果之前手动拍过 *.bak-srcpatch，那些快照可能早于某次宿主升级，')
+  console.log('      已经过期 —— 不要再拿它们覆盖源文件，删掉更安全。')
   process.exit(0)
 }
