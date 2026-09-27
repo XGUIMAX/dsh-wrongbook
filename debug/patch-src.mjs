@@ -51,6 +51,8 @@ const A1_TO =
   '\t\t\t\t\tvar config = Object.assign({}, options || {});\n' +
   '\t\t\t\t\tif (typeof prompt === "string") { if (config.prompt === undefined) config.prompt = prompt; }\n' +
   '\t\t\t\t\telse if (prompt && typeof prompt === "object") Object.assign(config, prompt);\n' +
+  '\t\t\t\t\tif (config.prompt !== undefined) { if (config.user_input === undefined) config.user_input = config.prompt; delete config.prompt; }\n' +
+  '\t\t\t\t\tif (!Array.isArray(config.ordered_prompts) || !config.ordered_prompts.length) config.ordered_prompts = [\"user_input\"];\n' +
   '\t\t\t\t\treturn config;\n' +
   '\t\t\t\t}\n' +
   '\t\t\t\tif (typeof window.generate !== "function") {\n' +
@@ -88,12 +90,16 @@ const A5_FROM = '\t\t\twindow.TavernHelper = helper;'
 const A5_TO =
   A5_FROM + '\n' +
   '\t\t\t// ' + MARK + ' ⑤ 父窗口那层的 window.generate（helper 的属性是 getter: () => window[name]）\n' +
+  '\t\t\t// 宿主的 generateRaw 是"显式编排"契约：只认 ordered_prompts / user_input 等，\n' +
+  '\t\t\t// 不认 prompt，且 ordered_prompts 必填非空 —— 所以这里要归一化。\n' +
   '\t\t\t;(function () {\n' +
   '\t\t\t\tif (typeof window.generate === "function") return;\n' +
   '\t\t\t\twindow.generate = function (prompt, options) {\n' +
   '\t\t\t\t\tvar config = Object.assign({}, options || {});\n' +
-  '\t\t\t\t\tif (typeof prompt === "string") { if (config.prompt === undefined) config.prompt = prompt; }\n' +
+  '\t\t\t\t\tif (typeof prompt === "string") { if (config.user_input === undefined) config.user_input = prompt; }\n' +
   '\t\t\t\t\telse if (prompt && typeof prompt === "object") Object.assign(config, prompt);\n' +
+  '\t\t\t\t\tif (config.prompt !== undefined) { if (config.user_input === undefined) config.user_input = config.prompt; delete config.prompt; }\n' +
+  '\t\t\t\t\tif (!Array.isArray(config.ordered_prompts) || !config.ordered_prompts.length) config.ordered_prompts = ["user_input"];\n' +
   '\t\t\t\t\treturn call("generateTavernHelperRaw", { config: config });\n' +
   '\t\t\t\t};\n' +
   '\t\t\t})();'
@@ -108,7 +114,9 @@ const A6_TO =
   '      const config = Object.assign({}, options || {});\n' +
   '      if (typeof prompt === "string") { if (config.prompt === undefined) config.prompt = prompt; }\n' +
   '      else if (prompt && typeof prompt === "object") Object.assign(config, prompt);\n' +
-  '      return window.generateRaw(config);\n' +
+    '      if (config.prompt !== undefined) { if (config.user_input === undefined) config.user_input = config.prompt; delete config.prompt; }\n' +
+  '      if (!Array.isArray(config.ordered_prompts) || !config.ordered_prompts.length) config.ordered_prompts = [\"user_input\"];\n' +
+'      return window.generateRaw(config);\n' +
   '    };\n' +
   '  }\n' +
   '  window.TavernHelper = Object.assign({}, original && original.helper, { generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames,'
