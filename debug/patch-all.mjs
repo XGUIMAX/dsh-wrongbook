@@ -42,7 +42,7 @@ const nodeApply = (script, cwd) => run(process.execPath, [script, '--apply'], cw
 const PATCHES = [
   {
     id: 'src',
-    title: '源码补丁（八处 + 三处包装归一化）',
+    title: '源码补丁（九处 + 三处包装归一化）',
     script: DEBUG + '/mvu-api-test/patch-src.mjs',
     status() {
       // 不能只数 MARK —— ②③④ 是"替换清单"，不带标记。
@@ -64,14 +64,28 @@ const PATCHES = [
         /helper patch \(src\)/.test(main), // ⑤ facade window.generate
         /generate: window\.generate/.test(open), // ⑥ 开场预览层
         /cloudflare-workshop\.saugrodep\.workers\.dev\//.test(main), // ⑦⑧ 创意工坊域名例外
+        // ⑨ frame-sizing 的两行 include。缺了它整个文件不进产物 —— 而这次实测
+        // 的症状是 createIndexedArrayApi 未定义、整个前端崩（不只是某个按钮坏）。
+        /@include-domain frame-sizing\.js/.test(main) && /@include modules\/frame-sizing\.js/.test(main),
       ]
       // 三处 generate 包装的归一化数量 —— 卡读的是其中一份，少了任何一份都会报
       // "需要显式 ordered_prompts"。光看"某一处存在"不够。
       const normCount = (src) => (String(src).match(/config\.ordered_prompts\s*=/g) || []).length
       checks.push(normCount(main) === 2) // ①⑤ 各一处
       checks.push(normCount(open) === 1) // ⑥ 一处
+      // 升级会整份替换 apps/dsh-tavern/，万一它又带来新文件却漏了 include，
+      // 这里能当作一个粗筛：include 总数掉下来了就说明有东西被抹掉。
+      const incCount = (String(main).match(/^\s*\/\/\s*@include/gm) || []).length
+      this.incCount = incCount
+      checks.push(incCount >= 40)
       const ok = checks.filter(Boolean).length
-      this.detail = ok + '/' + checks.length + ' 处就位（含三处包装的归一化）'
+      this.detail =
+        ok +
+        '/' +
+        checks.length +
+        ' 处就位（含三处包装的归一化；include ' +
+        incCount +
+        ' 条，应 ≥40）'
       return ok === checks.length ? 'ok' : ok === 0 ? 'need' : 'partial'
     },
     apply: (s) => nodeApply(s, DATA),
