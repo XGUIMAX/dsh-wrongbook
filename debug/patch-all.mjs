@@ -1,4 +1,4 @@
-// DSH 升级后一键重打所有宿主补丁。
+﻿// DSH 升级后一键重打所有宿主补丁。
 //
 // 为什么需要它：宿主补丁改的是 apps/dsh-tavern/ 下的文件（src/ 与 lib/），
 // 而 DSH 升级是整份替换 —— 补丁会静默失效，不报错，只是功能悄悄回到补丁前。
@@ -42,7 +42,7 @@ const nodeApply = (script, cwd) => run(process.execPath, [script, '--apply'], cw
 const PATCHES = [
   {
     id: 'src',
-    title: '源码补丁（六处 helper）',
+    title: '源码补丁（八处 + 三处包装归一化）',
     script: DEBUG + '/mvu-api-test/patch-src.mjs',
     status() {
       // 不能只数 MARK —— ②③④ 是"替换清单"，不带标记。
@@ -63,10 +63,16 @@ const PATCHES = [
         /"generateRaw", "generate", "injectPrompts"/.test(main), // ④ facade 清单
         /helper patch \(src\)/.test(main), // ⑤ facade window.generate
         /generate: window\.generate/.test(open), // ⑥ 开场预览层
+        /cloudflare-workshop\.saugrodep\.workers\.dev\//.test(main), // ⑦⑧ 创意工坊域名例外
       ]
+      // 三处 generate 包装的归一化数量 —— 卡读的是其中一份，少了任何一份都会报
+      // "需要显式 ordered_prompts"。光看"某一处存在"不够。
+      const normCount = (src) => (String(src).match(/config\.ordered_prompts\s*=/g) || []).length
+      checks.push(normCount(main) === 2) // ①⑤ 各一处
+      checks.push(normCount(open) === 1) // ⑥ 一处
       const ok = checks.filter(Boolean).length
-      this.detail = ok + '/6 处就位'
-      return ok === 6 ? 'ok' : ok === 0 ? 'need' : 'partial'
+      this.detail = ok + '/' + checks.length + ' 处就位（含三处包装的归一化）'
+      return ok === checks.length ? 'ok' : ok === 0 ? 'need' : 'partial'
     },
     apply: (s) => nodeApply(s, DATA),
     needsBuild: true,
@@ -74,13 +80,14 @@ const PATCHES = [
   {
     id: 'workshop',
     title: '创意工坊直连域名',
-    script: DEBUG + '/workshop-direct/patch.mjs',
+    // 已并入源码补丁（patch-src.mjs 的 ⑦⑧）。不再单独往 lib/client.js 注入 ——
+    // 那样会让 check:client 永远报"已过期"（src 有改动、lib 多出源码里没有的东西，
+    // 两者必然对不上）。这里只如实标注，不再单独检查、也不单独应用。
     status() {
-      const r = node(this.script, DATA)
-      this.detail = (r.out.split('\n').find((l) => l.includes('未打补丁') || l.includes('已打补丁')) || '').trim()
-      return r.out.includes('已打补丁') ? 'ok' : r.out.includes('未打补丁') ? 'need' : 'unknown'
+      this.detail = '已并入源码补丁（⑦⑧）'
+      return 'ok'
     },
-    apply: (s) => nodeApply(s, DATA),
+    apply: null,
   },
   {
     id: 'mvu-api',
@@ -188,6 +195,8 @@ let step = didBuild ? 3 : 1
 const NUMS = ['①', '②', '③', '④', '⑤', '⑥']
 for (const p of need) {
   if (p === srcPatch) continue
+  // 没有 apply 的项 = 已并入别处（如 workshop 并入源码补丁），只列不跑
+  if (typeof p.apply !== 'function') continue
   console.log((NUMS[step - 1] || '·') + ' ' + p.title)
   const r = p.apply(p.script)
   const lines = r.out.split('\n').filter((l) => l.trim())

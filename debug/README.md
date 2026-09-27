@@ -54,31 +54,69 @@ node debug/patch-all.mjs --apply  # 缺的自动重打
 
 **面板上也有入口**：设置 → 错题库 → **宿主补丁** 页签，里面有「一键重打宿主补丁」「检查补丁状态」两个按钮，以及一份**按"服务于谁"分组的清单**（哪个补丁服务于哪张卡）。
 
+### 其实不用手动跑 —— 插件启动时会自己检查
+
+`dsh-wrongbook` 的 host half 在加载后**异步跑一次 `patch-all.mjs --apply`**（幂等：没缺失就一个字节都不改）。它住在 `.dsh/plugins/` 下，**DSH 升级碰不到它**，所以由它来照看宿主文件。
+
+- 一切就绪 → 日志一行 `宿主补丁已就位`；
+- 刚补过 → 日志 `⚠ 宿主补丁缺失，已自动补齐 —— 重启 DSH 后生效`，面板那行也会跟着变；
+- **限制**：补丁改的是**宿主文件**，而插件是在这些文件已被读进内存之后才跑的 —— **本次启动补上、下次启动生效**。
+
+面板页签顶部会显示带时间戳的结果（`✓ 本次启动已自动检查：全部就位（13:25:41）`），**"补丁还在不在"因此有一个看得见的答案**，不用手动点一次才知道。
+
 ### 顺序不是装饰
 
 `patch-all.mjs` 自己处理依赖顺序，但手动跑时要注意：
 
 | 顺序 | 脚本 | 改哪里 |
 | --- | --- | --- |
-| **1** | `patch-src.mjs` | `src/client/main.js` + `src/client/opening-preview.js` |
+| **1** | `patch-src.mjs` | `src/client/main.js` + `src/client/opening-preview.js`（**八处**） |
 | **2** | `bin/build-tavern-client.mjs` | 重建 `lib/client.js` —— **会覆盖 `lib/` 上的一切直接注入** |
-| **3** | `workshop-direct/patch.mjs` | `lib/client.js` ← **必须在 build 之后** |
-| **4** | `patch.mjs` | `lib/domain/tavern-helper-scripts.js` |
-| **5** | `patch-test.mjs` | `lib/domain/card-response-test.js` |
+| **3** | `patch.mjs` | `lib/domain/tavern-helper-scripts.js` |
+| **4** | `patch-test.mjs` | `lib/domain/card-response-test.js` |
 
-**把 3 排在 2 前面会怎样**：输出显示「已应用：已打补丁」，一切正常 —— 但下一次 build 就把它抹掉了。**这是"看起来成功、实际会被下次操作抵消"的一类问题。**
+**创意工坊的域名例外已经并入 `patch-src.mjs`（⑦⑧）**，不再单独跑 —— 它原来改 `lib/client.js`，让 `check:client` 永远报"已过期"（src 有改动、lib 多出源码里没有的东西，两者必然对不上）。**别再去跑 `workshop-direct/patch.mjs`**，那样会把状态弄回不一致。
 
 ### 各补丁的作用
 
 | 脚本 | 改的文件 | 作用 |
 | --- | --- | --- |
-| `patch-src.mjs` | `src/client/*.js`（**源码**） | 给各层补 `generate` / `generateRaw` / `injectPrompts` / `getCharWorldbookNames`；见下节 |
-| `verify-srcpatch.mjs` | —— | 断言六处补丁同时进了源码和产物，且旧的 lib 标记已被清除 |
+| `patch-src.mjs` | `src/client/*.js`（**源码，八处**） | ① 消息 iframe 的四个 helper；②③ 同层的 `generate`；④⑤ facade 清单与 `window.generate`；⑥ 开场预览层；⑦⑧ 创意工坊域名例外 |
+| `verify-srcpatch.mjs` | —— | 断言八处同时进了源码和产物、**三处 `generate` 包装的归一化数量正确**（main.js 2 处、opening-preview.js 1 处）、旧 lib 标记已清除 |
 | `workshop-direct/patch.mjs` | `lib/client.js` | 创意工坊域名直连（否则 Build / 人设 / 拓展 / 世界书 都是空的） |
 | `patch.mjs` | `domain/tavern-helper-scripts.js` | 放开 MVU 卡（卡内无脚本的）的纯 API 测试 |
 | `patch-test.mjs` | `domain/card-response-test.js` | 超时记录里保留前台正文 |
-| `patch-card-generate.mjs` | **卡内脚本** | 给龙娘回廊补 `generate` 并适配宿主的 `ordered_prompts` 契约；**不受升级影响** |
+| `patch-card-generate.mjs` | **卡内脚本** | 给龙娘回廊补 `generate` 并适配宿主的 `ordered_prompts` 契约；**不受升级影响**。判据是"接管 + 自有标记"（`__dshNormalized`），不是"存在就不管" —— 见下节 |
 | ~~`patch-frame-helper.mjs`~~ | ~~`lib/client.js`~~ | **已退役** —— 六处补丁住进 `src/` 后由 build 带进 `lib/`，它的旧标记检测会误报「只打了一半」，属正常，别去"修" |
+| ~~`workshop-direct/patch.mjs`~~ | ~~`lib/client.js`~~ | **已退役** —— 域名例外并入 `patch-src.mjs` 的 ⑦⑧。跑它会让 `check:client` 重新报"已过期" |
+
+### 三处 `generate` 包装必须一致
+
+宿主的 `generateRaw` 是**显式编排契约**（`lib/domain/helper-generation.js`）：只认 `ordered_prompts` / `user_input` / `max_chat_history` / `should_stream` / `should_silence` / `overrides` / `generation_id`，**没有 `prompt`**，且 `ordered_prompts` 必填非空。
+
+所以每个把 ST 风格 `generate(prompt, options)` 映射过去的包装都要做两步归一化：
+
+```js
+if (cfg.prompt !== undefined) { if (cfg.user_input === undefined) cfg.user_input = cfg.prompt; delete cfg.prompt; }
+if (!Array.isArray(cfg.ordered_prompts) || !cfg.ordered_prompts.length) cfg.ordered_prompts = ["user_input"];
+```
+
+**而这样的包装有三份**（各跑在不同的 frame，没法合并）：
+
+| # | 位置 | 谁读它 |
+| --- | --- | --- |
+| ① | `src/client/main.js` 的 `tavernHelperScriptBootstrap`（`genNorm`） | 消息 iframe 里的脚本 |
+| **⑤** | **`src/client/main.js` 的 `installTavernHelperFacade`** | **卡内脚本（经 `window.parent`）** |
+| ⑥ | `src/client/opening-preview.js` 的 `installOpeningPreviewBridge` | 开场预览 |
+
+**改了一份而漏了另两份，症状会变成"下一层的错"** —— 提示从「API 不可用」变成「需要显式 ordered_prompts」，看起来像前进了一步。**改完一定数一遍命中数**：
+
+```bash
+grep -c "config.ordered_prompts =" apps/dsh-tavern/tavern-plugin/src/client/main.js            # 期望 2
+grep -c "config.ordered_prompts =" apps/dsh-tavern/tavern-plugin/src/client/opening-preview.js # 期望 1
+```
+
+（`verify-srcpatch.mjs` 和 `patch-all.mjs` 都把这两项算进判据了。）
 
 **状态判读**：
 
