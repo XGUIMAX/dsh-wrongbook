@@ -40,6 +40,9 @@ window.__ModuleLoader__.load({
       'btn.patchHost': '一键重打宿主补丁',
       // 宿主补丁改的是 apps/dsh-tavern/ 下的文件，DSH 升级会整份替换 —— 补丁静默失效，
       // 不报错，只是功能悄悄回到补丁前。所以升级后跑一次。
+      'patch.autoOk': '本次启动已自动检查：全部就位',
+      'patch.autoFixed': '本次启动自动补齐了补丁 —— 重启 DSH 后生效',
+      'patch.autoFail': '本次启动的自动检查没跑成',
       'patch.usage': '用法（升级后跑一次）：先「检查」看哪些失效，再「重打」自动补齐，最后重启 DSH 生效。',
       'patch.hint': '宿主补丁会被 DSH 升级覆盖。',
       'ok.patchCheck': '检查完成，见下方输出',
@@ -266,6 +269,9 @@ window.__ModuleLoader__.load({
       'btn.reload': 'Reload',
       'btn.rescan': 'Rescan card directory',
       'btn.patchHost': 'Reapply host patches',
+      'patch.autoOk': 'Checked automatically at startup: all in place',
+      'patch.autoFixed': 'Patches were reapplied at startup -- restart DSH to take effect',
+      'patch.autoFail': 'The startup check did not run',
       'patch.usage': 'After a DSH upgrade, once: Check to see which patches went stale, Reapply to restore them, then restart DSH.',
       'patch.hint': 'A DSH upgrade replaces the host files the patches edit.',
       'ok.patchCheck': 'Check finished, see output below',
@@ -1849,6 +1855,9 @@ window.__ModuleLoader__.load({
       // 由 host 侧的脚本自己保证。
       const [patchOut, setPatchOut] = useState(null)
       const [patchBusy, setPatchBusy] = useState(false)
+      // 启动时那次自动检查的结果（host 在插件加载后自己跑一遍，见 lib/index.js）。
+      // 这样"补丁还在不在"不需要你记得点一次才知道。
+      const [patchAuto, setPatchAuto] = useState(null)
       const patchHost = useCallback(
         async (apply) => {
           setPatchBusy(true)
@@ -1857,6 +1866,7 @@ window.__ModuleLoader__.load({
             const payload = await res.json()
             const out = String(payload.output || payload.error || '（无输出）')
             setPatchOut(out)
+            if (payload.auto) setPatchAuto(payload.auto)
             if (!payload.ok) {
               setMessage({ kind: 'err', text: t('err.patch') + '：' + String(payload.error || '') })
             } else if (!apply) {
@@ -2717,6 +2727,18 @@ window.__ModuleLoader__.load({
       const patchView = h(
         'div',
         { className: 'dwb-card dwb-card flat' },
+        // 启动时 host 已经自动检查过一轮 —— 把结果显示出来，这样"补丁还在不在"
+        // 不需要你记得手动点一次。刚补过的话明确提示要重启。
+        patchAuto
+          ? h(
+              'div',
+              { className: patchAuto.error || patchAuto.pendingRestart ? 'dwb-hint warn' : 'dwb-hint' },
+              (patchAuto.error ? '⚠ ' : patchAuto.pendingRestart ? '⚠ ' : '✓ ') +
+                t(patchAuto.error ? 'patch.autoFail' : patchAuto.pendingRestart ? 'patch.autoFixed' : 'patch.autoOk') +
+                (patchAuto.checkedAt ? '（' + new Date(patchAuto.checkedAt).toLocaleTimeString() + '）' : '') +
+                (patchAuto.error ? '：' + patchAuto.error : ''),
+            )
+          : null,
         h(
           'div',
           { className: 'dwb-row' },
