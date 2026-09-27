@@ -29,10 +29,15 @@ const SNIPPET =
   '  function ensureGenerate(w) {\n' +
   '    try {\n' +
   '      var TH = w && w.TavernHelper;\n' +
-  '      if (!TH || typeof TH.generate === "function") return;\n' +
+  '      if (!TH) return;\n' +
+  '      // 不检查"TH.generate 是否存在"就返回 —— 宿主的 facade 会提供一个**存在但需要\n' +
+  '      // 归一化**的版本（它把 prompt 直接塞进 config，宿主的显式编排契约会拒绝）。\n' +
+  '      // 那种情况下存在性检查会让我们直接返回、一点忙都帮不上。\n' +
+  '      // 只在"已经是我们自己补的那份"时跳过，避免重复包装。\n' +
+  '      if (TH.generate && TH.generate.__dshNormalized) return;\n' +
   '      var raw = (typeof TH.generateRaw === "function" ? TH.generateRaw : null) || (typeof w.generateRaw === "function" ? w.generateRaw : null);\n' +
   '      if (!raw) return;\n' +
-  '      TH.generate = function (prompt, options) {\n' +
+  '      var wrapped = function (prompt, options) {\n' +
   '        var cfg = Object.assign({}, options || {});\n' +
   '        if (typeof prompt === "string") { if (cfg.user_input === undefined) cfg.user_input = prompt; }\n' +
   '        else if (prompt && typeof prompt === "object") Object.assign(cfg, prompt);\n' +
@@ -40,6 +45,8 @@ const SNIPPET =
   '        if (!Array.isArray(cfg.ordered_prompts) || !cfg.ordered_prompts.length) cfg.ordered_prompts = ["user_input"];\n' +
   '        return raw.call(TH, cfg);\n' +
   '      };\n' +
+  '      wrapped.__dshNormalized = true;\n' +
+  '      TH.generate = wrapped;\n' +
   '    } catch (e) { /* 跨窗口访问失败就跳过 */ }\n' +
   '  }\n' +
   '  ensureGenerate(window);\n' +
