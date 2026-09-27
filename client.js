@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
       'tab.entries': '人物卡错题',
       'tab.other': '其它错题',
       'tab.scripts': '卡脚本',
+      'tab.patch': '宿主补丁',
       'tab.backup': '备份与还原',
       'search.ph': '跨卡查询：症状、标签、报错原文…',
       'filter.status': '全部状态',
@@ -255,6 +256,7 @@ window.__ModuleLoader__.load({
       'tab.entries': 'Card issues',
       'tab.other': 'Other issues',
       'tab.scripts': 'Card scripts',
+      'tab.patch': 'Host patches',
       'tab.backup': 'Backups',
       'search.ph': 'Cross-card search: symptom, tag, error text…',
       'filter.status': 'All statuses',
@@ -547,6 +549,14 @@ window.__ModuleLoader__.load({
   '.dwb-item>.dwb-col{min-width:0}',
   '.dwb-item>.dwb-row{gap:4px;flex-wrap:nowrap;min-width:0}',
   '.dwb-item .dwb-chip{flex:0 0 auto;white-space:nowrap}',
+  // 计数徽章的容器：真实节点 + 不参与收缩，这样它不会跟卡名抢宽度
+  '.dwb-counts{display:flex;align-items:center;gap:4px;flex:0 0 auto;margin-left:auto}',
+  // 宿主补丁列表：一条一块，和「卡脚本」的组织方式一致
+  '.dwb-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}',
+  '.dwb-patch-item{border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:8px 10px;display:flex;flex-direction:column;gap:3px}',
+  '.dwb-patch-title{font-size:12px;font-weight:600}',
+  '.dwb-patch-target{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary);word-break:break-all}',
+  '.dwb-patch-why{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary)}',
       '.dwb-item-sub{font-size:10px;color:var(--dsw-alias-label-secondary)}',
       '.dwb-entry{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);padding:10px 11px;display:flex;flex-direction:column;gap:7px}',
       '.dwb-entry.fixed{opacity:.78}',
@@ -679,7 +689,9 @@ window.__ModuleLoader__.load({
       if (count.open) out.push(h('span', { key: 'o', className: 'dwb-chip bad' }, `${count.open} ${t('count.open')}`))
       if (count.watch) out.push(h('span', { key: 'w', className: 'dwb-chip warn' }, `${count.watch} ${t('count.watch')}`))
       if (count.fixed) out.push(h('span', { key: 'f', className: 'dwb-chip ok' }, `${count.fixed} ${t('count.fixed')}`))
-      return out.length ? h(Fragment, null, out) : null
+      // 必须包一层真实节点。返回 Fragment 的话这几个徽章会直接成为 .dwb-item 的
+      // flex 子项，跟旁边的名字列抢空间 —— 窄的时候就被挤到卡名上，看着像两个徽章重叠。
+      return out.length ? h('div', { className: 'dwb-counts' }, out) : null
     }
 
     /**
@@ -2172,39 +2184,11 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: rescan, disabled: busy }, t('btn.rescan')),
           h(
             'button',
-            {
-              type: 'button',
-              className: 'dwb-btn ghost',
-              onClick: () => void patchHost(true),
-              disabled: patchBusy || busy,
-              title: t('patch.usage'),
-            },
-            t('btn.patchHost'),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dwb-btn ghost',
-              onClick: () => void patchHost(false),
-              disabled: patchBusy || busy,
-            },
-            t('btn.patchCheck'),
-          ),
-          h(
-            'button',
             { type: 'button', className: 'dwb-btn ghost', onClick: openReflux, disabled: busy },
             autoReflux ? h('span', { className: 'dwb-live', title: autoBar() }, '●') : null,
             t('reflux.open'),
           ),
           h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => void load() }, t('btn.reload')),
-          // 用法行：升级后跑一次。宿主补丁会被 DSH 升级覆盖，这条提示要一直看得见，
-          // 不能只藏在按钮的 title 里。
-          h(
-            'div',
-            { className: 'dwb-note' },
-            t('patch.usage'),
-          ),
           patchOut
             ? h(
                 'details',
@@ -2713,6 +2697,98 @@ window.__ModuleLoader__.load({
         ),
       )
 
+      // 补丁清单。清单是固定的，所以直接写在这里 —— 不必让 host 再返一份结构化数据。
+      // cards 为空 = 服务于整个宿主（不是某张卡）。
+      const PATCH_LIST = [
+        { title: '源码补丁（六处 helper）', target: 'src/client/main.js + opening-preview.js',
+          cards: ['龙娘回廊！5.3 MVU版本'],
+          why: '卡内脚本经 window.parent 读 TavernHelper.generate，而那一层缺 generate' },
+        { title: '创意工坊直连域名', target: 'lib/client.js', cards: [],
+          why: '让创意工坊的域名不走静态资源代理（否则 Build / 人设 / 拓展 / 世界书 都是空的）' },
+        { title: 'MVU 卡纯 API 测试', target: 'lib/domain/tavern-helper-scripts.js', cards: [],
+          why: '放开"卡内无脚本"的 MVU 卡在纯 API 下做测试（调试用，不针对某张卡）' },
+        { title: '超时保留前台正文', target: 'lib/domain/card-response-test.js', cards: [],
+          why: '超时记录里保留前台正文，否则只看得到超时、看不到正文' },
+        { title: '卡内 generate 兜底', target: '卡内脚本 助手agent_v0.15 开头',
+          cards: ['龙娘回廊！5.3 MVU版本'],
+          why: '补 generate，并把 prompt 折成 user_input、兜底 ordered_prompts（宿主的显式编排契约）' },
+      ]
+      const patchCards = [...new Set(PATCH_LIST.flatMap((p) => p.cards))]
+      const patchView = h(
+        'div',
+        { className: 'dwb-card dwb-card flat' },
+        h(
+          'div',
+          { className: 'dwb-row' },
+          h('div', { className: 'dwb-sub' }, t('patch.usage')),
+          h('span', { className: 'dwb-grow' }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwb-btn primary',
+              onClick: () => void patchHost(true),
+              disabled: patchBusy || busy,
+            },
+            t('btn.patchHost'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dwb-btn ghost',
+              onClick: () => void patchHost(false),
+              disabled: patchBusy || busy,
+            },
+            t('btn.patchCheck'),
+          ),
+        ),
+        patchOut
+          ? h('details', { className: 'dwb-patch-out', open: true }, h('summary', null, t('patch.output')), h('pre', { className: 'dwb-pre' }, patchOut))
+          : null,
+        h('div', { className: 'dwb-hint' }, t('patch.hint')),
+        // 按卡分组：先列"服务于整张宿主"的，再列每张卡专属的 —— 和「卡脚本」的组织方式一致
+        h(
+          'div',
+          { className: 'dwb-sub', style: { marginTop: 10 } },
+          t('patch.groupHost'),
+        ),
+        h(
+          'div',
+          { className: 'dwb-list' },
+          PATCH_LIST.filter((p) => !p.cards.length).map((p) =>
+            h(
+              'div',
+              { className: 'dwb-patch-item', key: p.title },
+              h('div', { className: 'dwb-patch-title' }, p.title),
+              h('div', { className: 'dwb-patch-target' }, p.target),
+              h('div', { className: 'dwb-patch-why' }, p.why),
+            ),
+          ),
+        ),
+        patchCards.map((card) =>
+          h(
+            'div',
+            { key: card },
+            h('div', { className: 'dwb-sub', style: { marginTop: 10 } }, card),
+            h(
+              'div',
+              { className: 'dwb-list' },
+              PATCH_LIST.filter((p) => p.cards.includes(card)).map((p) =>
+                h(
+                  'div',
+                  { className: 'dwb-patch-item', key: p.title },
+                  h('div', { className: 'dwb-patch-title' }, p.title),
+                  h('div', { className: 'dwb-patch-target' }, p.target),
+                  h('div', { className: 'dwb-patch-why' }, p.why),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
+
+
       return h(
         'div',
         { className: 'dwb-root' },
@@ -2783,6 +2859,11 @@ window.__ModuleLoader__.load({
                 { type: 'button', className: `dwb-tab${view === 'scripts' ? ' on' : ''}`, onClick: () => pickView('scripts') },
                 t('tab.scripts'),
               ),
+                h(
+                  'button',
+                  { type: 'button', className: `dwb-tab${view === 'patch' ? ' on' : ''}`, onClick: () => pickView('patch') },
+                  t('tab.patch'),
+                ),
               h(
                 'button',
                 { type: 'button', className: `dwb-tab${view === 'backup' ? ' on' : ''}`, onClick: () => pickView('backup') },
@@ -2800,7 +2881,7 @@ window.__ModuleLoader__.load({
                 message.hint ? h('span', { className: 'dwb-sub' }, message.hint) : null,
               )
             : null,
-          view === 'backup' ? backupView : view === 'scripts' ? scriptsView : entriesView,
+          view === 'backup' ? backupView : view === 'scripts' ? scriptsView : view === 'patch' ? patchView : entriesView,
           h(
             'div',
             { className: 'dwb-card dwb-card flat' },

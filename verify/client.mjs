@@ -696,13 +696,16 @@ function findByClass(node, cls, acc = []) {
   return findByClass(node.children, cls, acc)
 }
 
-/* 视图切换：三个页签 */
+/* 视图切换：五个页签 */
 const tabs = findByClass(tree, 'dwb-tab')
-check('渲染出四个页签', tabs.length === 4, String(tabs.length))
+// 按文案取页签，别用索引 —— 加一个页签就会让后面所有索引错位，
+// 而错位之后报的是"备份页没渲染"，看不出真正原因是页签多了一个。
+const tabNamed = (label) => tabs.find((n) => n.children.join('').includes(label))
+check('渲染出五个页签', tabs.length === 5, String(tabs.length))
 check('默认停在人物卡错题页', tabs[0] && tabs[0].props.className.includes('on'), tabs.map((n) => n.props.className).join('|'))
 check(
   '页签文案正确',
-  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|卡脚本|备份与还原',
+  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|卡脚本|宿主补丁|备份与还原',
   tabs.map((n) => n.children.join('')).join('|'),
 )
 check('错题页渲染查询工具条', findByClass(tree, 'dwb-bar').length >= 1)
@@ -770,7 +773,9 @@ check(
 
 /* 备份页 */
 const scriptTabs = findByClass(scriptTree, 'dwb-tab')
-scriptTabs[3].props.onClick()
+// 同样按文案找 —— 原来写死 [3]，加页签后点到的是"宿主补丁"，
+// 于是下面十条全报"备份页没渲染"，真正的原因（页签多了一个）反而看不见。
+scriptTabs.find((n) => n.children.join('').includes('备份与还原')).props.onClick()
 const backupTree = renderOnce()
 const backupRows = findByClass(backupTree, 'dwb-backup')
 check('备份页渲染出备份行', backupRows.length === 2, String(backupRows.length))
