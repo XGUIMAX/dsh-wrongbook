@@ -27,20 +27,58 @@
 | `scan-host-api2.mjs` | 加了「剔除卡自有定义」—— `window.x =` 声明过的函数不算缺口 |
 | `scan-host-api3.mjs` | **用这个**。按「引用」匹配而不是「调用」匹配，并且区分 `TavernHelper.x`（永远是宿主转发）与 `window.x`（可能是卡自有） |
 | `scan-legacy-protocol.mjs` | 找「宿主有 `状态更新规则`、但旧的正文协议条目还在启用」的卡 —— 那种卡每轮同时收到两套相反指令 |
+| `scan-parent-window.mjs` | 找**经 `TavernHelper` 命名空间**取宿主接口的卡（`TavernHelper.generate` 这类） |
+| `scan-window-calls.mjs` | 找**在跨层 window 上直接调**宿主接口的卡（`topWin.createChatMessages` 这类） |
+
+**后两个是一对，缺一会漏一半** —— 卡取宿主接口有两条路径，只扫命名空间那条抓不到直接调 window 的。实测全库只有两张卡会这么做：龙娘回廊（经 `TavernHelper`）和艹🐎大作战（经 `topWin.createChatMessages`）。
+
+**`scan-window-calls.mjs` 的识别条件要收紧**：第一版把所有 `let X = …window.parent…` 的 X 都当窗口别名，于是压缩代码里的单字母局部变量（`e` / `n` / `r` / `t`）全被算进来，接着 `get()` / `set()` / `replace()` 这类**每个对象都有的方法**涌进来，**一张卡报了 33 个假缺口**。现在要求变量名 ≥3 字符且含窗口语义（`parent` / `top` / `win` / `frame` / `host` / `outer` / `root`）。
+
+**通用一条**：静态扫"跨作用域取全局"时，**变量名识别宁紧勿松**。松了会被通用方法名冲垮判据；紧一点最多漏几个，而漏掉的可以靠"读那张卡取 helper 的原文"补回来。
 
 **为什么留了三个版本**：它们是同一条排查思路的迭代记录。`scan-host-api.mjs` 会误报（把卡自己的函数算成缺口），`scan-host-api2.mjs` 会漏报（`typeof TavernHelper.generate` 这种写法扫不到）。**改判据的代价看得见，比只留最后一个版本更有参考价值。**
 
 ## 宿主补丁
 
-三个补丁都改 `apps/dsh-tavern/tavern-plugin/lib/` 下的宿主文件，**都需要重启 DSH 生效**。
+补丁改的是 `apps/dsh-tavern/` 下的宿主文件，**都需要重启 DSH 生效**。无参数运行 = 查状态；`--apply` 应用；`--revert` 还原。**全部幂等、自动备份**。
 
-无参数运行 = 查状态；`--apply` 应用；`--revert` 还原。**全部幂等、自动备份**。
+**⚠ 改 `lib/` 会被 build 覆盖。** `lib/client.js` 是 `src/client/*.js` 的编译产物，宿主有 `check:client` 比对两者（`package.json` 里是 `prepublishOnly` 与所有 e2e 的前置）。**只在 `lib/` 上打补丁会让它被判"已过期"** —— 这正是"补丁报告成功、语法也过、也重启了，功能却不生效"的根源，曾为此绕了六轮。
+
+### 一键重打（推荐）
+
+```bash
+node debug/patch-all.mjs          # 只查状态
+node debug/patch-all.mjs --apply  # 缺的自动重打
+# 之后重启 DSH
+```
+
+**面板上也有入口**：设置 → 错题库 → **宿主补丁** 页签，里面有「一键重打宿主补丁」「检查补丁状态」两个按钮，以及一份**按"服务于谁"分组的清单**（哪个补丁服务于哪张卡）。
+
+### 顺序不是装饰
+
+`patch-all.mjs` 自己处理依赖顺序，但手动跑时要注意：
+
+| 顺序 | 脚本 | 改哪里 |
+| --- | --- | --- |
+| **1** | `patch-src.mjs` | `src/client/main.js` + `src/client/opening-preview.js` |
+| **2** | `bin/build-tavern-client.mjs` | 重建 `lib/client.js` —— **会覆盖 `lib/` 上的一切直接注入** |
+| **3** | `workshop-direct/patch.mjs` | `lib/client.js` ← **必须在 build 之后** |
+| **4** | `patch.mjs` | `lib/domain/tavern-helper-scripts.js` |
+| **5** | `patch-test.mjs` | `lib/domain/card-response-test.js` |
+
+**把 3 排在 2 前面会怎样**：输出显示「已应用：已打补丁」，一切正常 —— 但下一次 build 就把它抹掉了。**这是"看起来成功、实际会被下次操作抵消"的一类问题。**
+
+### 各补丁的作用
 
 | 脚本 | 改的文件 | 作用 |
 | --- | --- | --- |
+| `patch-src.mjs` | `src/client/*.js`（**源码**） | 给各层补 `generate` / `generateRaw` / `injectPrompts` / `getCharWorldbookNames`；见下节 |
+| `verify-srcpatch.mjs` | —— | 断言六处补丁同时进了源码和产物，且旧的 lib 标记已被清除 |
+| `workshop-direct/patch.mjs` | `lib/client.js` | 创意工坊域名直连（否则 Build / 人设 / 拓展 / 世界书 都是空的） |
 | `patch.mjs` | `domain/tavern-helper-scripts.js` | 放开 MVU 卡（卡内无脚本的）的纯 API 测试 |
-| `patch-test.mjs` | `domain/card-response-test.js` | 超时记录里保留前台正文（否则只看到超时、看不到正文） |
-| `patch-frame-helper.mjs` | `client.js` | 给 iframe 补 `generate` / `generateRaw` / `injectPrompts` / `getCharWorldbookNames` |
+| `patch-test.mjs` | `domain/card-response-test.js` | 超时记录里保留前台正文 |
+| `patch-card-generate.mjs` | **卡内脚本** | 给龙娘回廊补 `generate` 并适配宿主的 `ordered_prompts` 契约；**不受升级影响** |
+| ~~`patch-frame-helper.mjs`~~ | ~~`lib/client.js`~~ | **已退役** —— 六处补丁住进 `src/` 后由 build 带进 `lib/`，它的旧标记检测会误报「只打了一半」，属正常，别去"修" |
 
 **状态判读**：
 
@@ -51,9 +89,11 @@
 
 ### 每次 DSH 升级后都要重跑
 
-**补丁改的是宿主文件，升级是整份替换 —— 升级后补丁必然失效。** 而且是**静默失效**：不报错，功能悄悄回到补丁前，很容易被当成「升级引入的 bug」。
+**补丁改的是宿主文件，升级是整份替换 —— 升级后补丁必然失效。** 而且是**静默失效**：不报错，功能悄悄回到补丁前，很容易被当成「升级引入的 bug」。**实测已发生三次。**
 
-判据不是版本号。实测遇到过两次都是 `2.3.0`、只有 commit 变了（`64e721b` → `674a554d`），光看 `package.json` 发现不了。**看目标文件的修改时间，或者直接跑三个脚本的状态检查。**
+判据不是版本号。实测遇到过两次都是 `2.3.0`、只有 commit 变了（`64e721b` → `674a554d`），光看 `package.json` 发现不了。**跑 `patch-all.mjs` 看状态最快。**
+
+**例外**：`patch-card-generate.mjs` 改的是**卡**，升级碰不到 —— 这正是"能修在卡里就别修在宿主里"的理由。
 
 ### 补 helper 要看清补哪一层
 
