@@ -17,6 +17,15 @@ const OPENING = BASE + '/src/client/opening-preview.js'
 
 const MARK = 'helper patch (src)' // 六处共用的标记，用于识别与还原
 
+// ⑨ 宿主漏掉的两行 include（见文件头说明）—— frame-sizing.js 不带 export、
+// 也不自带 @include，完全靠 main.js 里这一行才会进产物。
+const A9_FROM = '\t\t// @include modules/frame-activation.js'
+const A9_TO =
+  '\t\t// ' + MARK + ' ⑨ 补 frame-sizing 的 include（宿主漏了，缺它整个文件不进产物）\n' +
+  '\t\t// @include-domain frame-sizing.js\n' +
+  '\t\t// @include modules/frame-sizing.js\n' +
+  A9_FROM
+
 // ① 消息 iframe：四个 helper 的实现 —— 必须插在 `});` **之后**（那是 createTransport 的收尾，
 // 之后才是语句位置；插在它之前等于落进对象字面量内部 → Unexpected token ';'）
 // ⑦⑧ 创意工坊域名例外 —— 原来单独打在 lib/client.js 上，但那样会让 `check:client`
@@ -174,6 +183,8 @@ if (mode === 'apply') {
   m = sub(m, WS_B_FROM, WS_B_TO, '⑧ 创意工坊域名例外（shim 的 proxy）')
   if (m === null) { console.log(steps.join('\n')); process.exit(1) }
 
+  m = sub(m, A9_FROM, A9_TO, '⑨ frame-sizing 的 include')
+  if (m === null) { console.log(steps.join('\n')); process.exit(1) }
   write(MAIN, m)
   write(OPENING, o)
   console.log(steps.join('\n'))
