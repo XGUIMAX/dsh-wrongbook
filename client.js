@@ -543,17 +543,26 @@ window.__ModuleLoader__.load({
       '.dwb-script-row.common{opacity:.55}',
       '.dwb-dot{flex:none;font-size:9px;color:var(--dsw-alias-state-success-primary)}',
       '.dwb-dot.off{color:var(--dsw-alias-label-secondary)}',
+      // dsh-peer-preset：与普通 chip 区分，用虚线边框避免被当成状态标签
+      '.dwb-chip.preset{border-style:dashed;opacity:.9}',
+      // dsh-peer-state：状态文字比圆点更明确，且不依赖颜色辨识
+      '.dwb-peer-state{font-size:10px;opacity:.75;margin-left:3px}',
       '.dwb-mono{font-family:ui-monospace,Consolas,monospace}',
-      '.dwb-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}',
+      // 允许换行：窄容器（侧边栏）里三个子项挤不下时，计数徽章整块落到下一行，
+      // 而不是让文字列收缩到 0、把里面的 chip 溢到邻居身上（表现为两个徽章叠在一起）。
+      '.dwb-item{display:flex;align-items:center;gap:8px;row-gap:4px;flex-wrap:wrap;padding:6px 8px;border-radius:9px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;width:100%;color:inherit;font:inherit}',
       '.dwb-item:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.dwb-item.on{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2)}',
       '.dwb-ava{width:30px;height:30px;border-radius:8px;object-fit:cover;flex:none;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}',
       '.dwb-ava-fb{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}',
       '.dwb-item-name{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   // 徽章不许被压 —— 卡名那一列是 flex:1，窄的时候会把 CountChips 挤到名字上，
-  // 看起来就是两个徽章叠在一起。给文字列加 min-width:0、给徽章加 flex:0 0 auto。
-  '.dwb-item>.dwb-col{min-width:0}',
-  '.dwb-item>.dwb-row{gap:4px;flex-wrap:nowrap;min-width:0}',
+  // 看起来就是两个徽章叠在一起。给文字列 min-width:0 + 一个最小基宽：
+  // 挤不下时由 .dwb-item 的 flex-wrap 让计数徽章整块换行，文字列也不会缩到 0。
+  '.dwb-item>.dwb-col{min-width:0;flex:1 1 7em}',
+  // 徽章行在文字列内部（.dwb-item > .dwb-col > .dwb-row），用后代选择器才命中；
+  // 原来写成子选择器 .dwb-item>.dwb-row 是不匹配的，靠一个内联 gap 样式兜着。
+  '.dwb-item .dwb-row{gap:4px;flex-wrap:wrap;min-width:0}',
   '.dwb-item .dwb-chip{flex:0 0 auto;white-space:nowrap}',
   // 计数徽章的容器：真实节点 + 不参与收缩，这样它不会跟卡名抢宽度
   '.dwb-counts{display:flex;align-items:center;gap:4px;flex:0 0 auto;margin-left:auto}',
@@ -581,6 +590,8 @@ window.__ModuleLoader__.load({
       '.dwb-pick{cursor:pointer;gap:6px}',
       '.dwb-pick input[type=checkbox]{flex:none;margin:0}',
       '.dwb-live{color:var(--dsw-alias-state-success-primary);font-size:9px;line-height:1;margin-right:3px}',
+      // dsh-peer-link：未连接时的红点
+      '.dwb-live.err{color:var(--dsw-alias-state-error-primary)}',
       '.dwb-progress-wrap{display:flex;flex-direction:column;gap:4px;margin:2px 0 8px}',
       '.dwb-progress{height:4px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);overflow:hidden}',
       '.dwb-progress-bar{height:100%;background:var(--dsw-alias-state-success-primary);transition:width .18s ease}',
@@ -646,6 +657,40 @@ window.__ModuleLoader__.load({
 
     const avatarUrl = (key) => `${BASE}/avatar?card=${encodeURIComponent(key)}`
 
+    /* dsh-peer-link —— 对端插件状态按钮：对方宿主半在跑就显示绿点，否则红点并可点击前往仓库下载。 */
+    const PEER = {
+      base: '/dsh-card-updater',
+      url: 'https://github.com/XGUIMAX/dsh-card-updater',
+      name: '卡片更新器',
+    }
+    function PeerLink() {
+      const [online, setOnline] = useState(null)
+      useEffect(() => {
+        let alive = true
+        const probe = () => {
+          fetch(PEER.base + '/state', { headers: { accept: 'application/json' } })
+            .then((res) => { if (alive) setOnline(res.ok) })
+            .catch(() => { if (alive) setOnline(false) })
+        }
+        probe()
+        const timer = setInterval(probe, 15000)
+        return () => { alive = false; clearInterval(timer) }
+      }, [])
+      const ok = online === true
+      const hint = ok ? PEER.name + ' 已连接' : (online === null ? '正在检测' + PEER.name + '…' : '未链接到' + PEER.name + '，请点击进行下载')
+      return h('a', {
+        className: 'dwb-btn ghost',
+        href: PEER.url,
+        target: '_blank',
+        rel: 'noreferrer',
+        style: { textDecoration: "none" },
+        title: hint,
+      },
+        h('span', { className: ok ? 'dwb-live' : 'dwb-live err', title: hint }, '●'),
+        PEER.name,
+        h('span', { className: 'dwb-peer-state' }, ok ? '已连接' : (online === null ? '检测中' : '未连接')),
+      )
+    }
     const statusClass = (status) => (status === 'fixed' ? 'ok' : status === 'watch' ? 'warn' : 'bad')
     const statusLabel = (status) => t(`status.${status}`)
 
@@ -719,7 +764,60 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: onArm }, label)
     }
 
+    /* dsh-peer-preset —— 「另附专用预设」标记（数据来自卡片更新器的 state，只读展示） */
+    const PEER_STATE_URL = '/dsh-card-updater/state'
+    let peerPresetCache = null
+    let peerPresetPromise = null
+    function loadPeerPresets() {
+      if (peerPresetCache) return Promise.resolve(peerPresetCache)
+      if (peerPresetPromise) return peerPresetPromise
+      peerPresetPromise = fetch(PEER_STATE_URL, { headers: { accept: "application/json" } })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          const map = new Map()
+          const cards = (body && body.config && body.config.cards) || []
+          cards.forEach((c) => {
+            const p = (c.plain && c.plain.path) || ""
+            const base = p ? String(p).split(/[\\/]/).pop() : ""
+            const gates = (c.primary && c.primary.gates) || []
+            const rec = {
+              preset: gates.indexOf("preset") >= 0,
+              gates,
+              url: (c.primary && c.primary.url) || "",
+              label: c.label || "",
+            }
+            if (base) map.set(base, rec)
+            if (rec.label) map.set(rec.label, rec)
+          })
+          peerPresetCache = map
+          return map
+        })
+        .catch(() => { peerPresetCache = new Map(); return peerPresetCache })
+        .finally(() => { peerPresetPromise = null })
+      return peerPresetPromise
+    }
+    function usePeerPresets() {
+      const [map, setMap] = useState(peerPresetCache)
+      useEffect(() => {
+        let alive = true
+        loadPeerPresets().then((m) => { if (alive) setMap(m) })
+        return () => { alive = false }
+      }, [])
+      return map
+    }
+    const peerRecordOf = (map, card) => {
+      if (!map) return null
+      const abs = card && card.abs ? String(card.abs) : ""
+      const candidates = []
+      if (abs) candidates.push(abs.split(/[\\/]/).pop())
+      if (card && card.name) candidates.push(card.name)
+      if (card && card.key) candidates.push(card.key)
+      for (const c of candidates) { const hit = map.get(c); if (hit) return hit }
+      return null
+    }
     function CardRow({ card, active, onPick }) {
+      const peerMap = usePeerPresets()
+      const peer = peerRecordOf(peerMap, card)
       return h(
         'button',
         {
@@ -744,6 +842,14 @@ window.__ModuleLoader__.load({
                   card.kind === 'mvu' ? 'MVU' : t('chip.plain'),
                 ),
             card.missing ? h('span', { className: 'dwb-chip warn' }, '!') : null,
+            peer && peer.preset
+              ? h('span', {
+                  className: 'dwb-chip preset',
+                  title:
+                    '卡片更新器检测到这张卡另附专用预设' +
+                    (peer.url ? '（来源：' + peer.url + '）' : ''),
+                }, '专属预设')
+              : null,
             h('span', { className: 'dwb-item-sub' }, `${(card.count && card.count.total) || 0}`),
           ),
         ),
@@ -2831,6 +2937,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dwb-header-actions' },
+              h(PeerLink),
               h(
                 'span',
                 {
