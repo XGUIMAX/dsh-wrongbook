@@ -807,9 +807,16 @@ window.__ModuleLoader__.load({
     }
     const peerRecordOf = (map, card) => {
       if (!map) return null
-      const abs = card && card.abs ? String(card.abs) : ""
       const candidates = []
+      const abs = card && card.abs ? String(card.abs) : ""
       if (abs) candidates.push(abs.split(/[\\/]/).pop())
+      // dsh-peer-preset-pair：更新器只为原版卡配了路径，MVU 版会落空。
+      // 借错题库自己的 pairKey（"cards/X.json" 与 "cards/X MVU版本.json" 互指）再试一次，
+      // 这样 MVU 版那个分类也能看到原版的「另附专用预设」。
+      if (card && card.pairKey) {
+        const m = /([^/\\]+)\.json$/i.exec(String(card.pairKey))
+        if (m) candidates.push(m[1] + ".json")
+      }
       if (card && card.name) candidates.push(card.name)
       if (card && card.key) candidates.push(card.key)
       for (const c of candidates) { const hit = map.get(c); if (hit) return hit }
@@ -1608,7 +1615,30 @@ window.__ModuleLoader__.load({
       // 分类分两组：人物卡（来自卡片目录）和其它（手建的，比如卡片更新器）。
       // 两个错题页签共用同一套渲染，只是换掉数据源。
       const groupOf = view === 'other' ? 'other' : 'card'
-      const groupCards = cards.filter((c) => (c.group || 'card') === groupOf)
+
+      /* dsh-wb-filter-cards —— 让上方「状态 / 范围」筛选也作用于左侧分类列表。
+       *
+       * 原来这两个下拉只过滤右栏条目，左侧永远列出全部卡片；条目一多就分不出
+       * 哪些卡还有活儿没干完。这里按当前筛选算出每张卡的命中条数，把 0 的隐藏掉。
+       *
+       * 两条边界：
+       *   · 筛选为空时不过滤 —— 否则一进页面就是空列表，像是库读坏了；
+       *   · 只过滤「人物卡」那组 —— 「其它错题」是手建分类（卡片更新器 / 通用等），
+       *     本身就是可能为空的分类位，被筛掉就没法往里记东西了。
+       */
+      const filterCounts = useMemo(() => {
+        const m = new Map()
+        for (const e of entries) {
+          if (filterStatus && e.status !== filterStatus) continue
+          if (filterScope && e.scope !== filterScope) continue
+          m.set(e.cardKey, (m.get(e.cardKey) || 0) + 1)
+        }
+        return m
+      }, [entries, filterStatus, filterScope])
+      const filtersActive = Boolean(filterStatus || filterScope)
+      const groupCards = cards
+        .filter((c) => (c.group || 'card') === groupOf)
+        .filter((c) => (!filtersActive || groupOf !== 'card' ? true : (filterCounts.get(c.key) || 0) > 0))
       const isOther = groupOf === 'other'
       const currentCard = groupCards.find((c) => c.key === selectedKey) || null
 

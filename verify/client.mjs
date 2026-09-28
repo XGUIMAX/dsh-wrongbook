@@ -343,8 +343,35 @@ const SKILL_LIST = {
   ],
 }
 
+/* dsh-verify-peer —— 对端（卡片更新器）的 state 夹具。
+   两张卡：测试卡A 带 preset，测试卡B 不带；这样既能验"出标记"也能验"不出标记"。
+   plain.path 只给原版 —— 与真实情况一致（更新器只为原版配路径），
+   所以 MVU 版能否出标记，取决于 pairKey 那一路查找。 */
+const PEER_STATE = {
+  ok: true,
+  config: {
+    cards: [
+      {
+        id: 'card-1',
+        label: '测试卡A',
+        plain: { path: 'C:\\sandbox\\resources\\cards\\测试卡A.json' },
+        primary: { gates: ['discord', 'preset'], url: 'https://example.com/a' },
+      },
+      {
+        id: 'card-2',
+        label: '测试卡B',
+        plain: { path: 'C:\\sandbox\\resources\\cards\\测试卡B.json' },
+        primary: { gates: ['discord', 'paid'], url: '' },
+      },
+    ],
+  },
+}
 const fetchStub = async (url, init) => {
   const target = String(url)
+  // dsh-verify-peer：对端端点必须先判 —— 下面的 '/state' 是子串匹配，会把它抢先吃掉。
+  if (target.includes('/dsh-card-updater/state')) {
+    return { status: 200, ok: true, json: async () => PEER_STATE }
+  }
   if (target.includes('/state')) return { status: 200, ok: true, json: async () => STATE }
   if (target.includes('/scripts')) {
     // 面板分两步拿数据：先不带参数要骨架，再带 ?card= 逐张要详情。
@@ -823,6 +850,101 @@ const code = source
 check('源码不使用 window.prompt', !/window\s*\.\s*prompt/.test(code))
 check('源码不使用 window.confirm', !/window\s*\.\s*confirm/.test(code))
 
+/* ---- dsh-verify-peer：新功能验收 ---- */
+
+/* 渲染 + commit effects + 等 fetch 回来，再渲染一轮看结果。
+   states[] 跨渲染保留（renderOnce 只重置 cursor），所以 async 后的值留得住。 */
+renderOnce()
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 80))
+const peerTree = renderOnce()
+
+check('dsh-verify-peer：对端状态按钮渲染出来了', findByType(peerTree, 'PeerLink').length === 1, String(findByType(peerTree, 'PeerLink').length))
+/* fix-verify-cases */
+/* findByType 只返回元素节点，组件函数【不会被调用】—— 所以它的 children 还没生成，
+   out.texts 里找不到插件名。要验输出，手动把它调一次。
+   cursor 要重置（对齐 useState 的调用位次），但 states[] 不重置 —— 这样探测回来的
+   online 值会被沿用，能验到「已连接」那一态。 */
+const peerNodes = findByType(peerTree, 'PeerLink')
+const peerTexts = []
+if (peerNodes.length === 1) {
+  const savedCursor = cursor
+  cursor = 0
+  let out2 = null
+  try {
+    out2 = peerNodes[0].type(peerNodes[0].props)
+  } catch (err) {
+    out2 = null
+  }
+  cursor = savedCursor
+  const collect = (n) => {
+    if (typeof n === "string" || typeof n === "number") return void peerTexts.push(String(n))
+    if (Array.isArray(n)) return void n.forEach(collect)
+    if (n && typeof n === "object") {
+      for (const [k, v] of Object.entries(n.props || {})) {
+        if (k !== "children" && (typeof v === "string" || typeof v === "number")) peerTexts.push(String(v))
+      }
+      if (n.children) collect(n.children)
+    }
+  }
+  collect(out2)
+}
+check('dsh-verify-peer：按钮上写着对端插件名', peerTexts.includes('卡片更新器'), peerTexts.join(' / '))
+/* fix-verify-cases2 */
+/* fix-verify-cases3：定义提到使用点之前（原先在下方，前面引用会 ReferenceError） */
+const peerSrc = fs.readFileSync(SRC, "utf8")
+check('dsh-verify-peer：按钮指向对端的仓库地址', peerTexts.some((x) => String(x).includes('dsh-card-updater')), peerTexts.filter((x) => String(x).includes('github')).join(' '))
+check('dsh-verify-peer：未连接时是红点 +「未连接」文案', peerTexts.includes('dwb-live err') && peerTexts.includes('未连接'), peerTexts.join(' / '))
+check('dsh-verify-peer：未连接时的 title 是引导下载那句', peerTexts.some((x) => String(x).includes('未链接到卡片更新器，请点击进行下载')), '')
+
+/* 三态是否齐备 —— 走静态检查。fetch 时序在最小 React 下不可靠，
+   但"有没有实现这三个分支"是确定的。 */
+check('dsh-verify-peer：组件实现了「已连接」态', peerSrc.includes("'已连接'"))
+check('dsh-verify-peer：组件实现了「检测中」态', peerSrc.includes("'检测中'"))
+check('dsh-verify-peer：组件实现了「未连接」态', peerSrc.includes("'未连接'"))
+
+/* 专属预设的匹配逻辑：在测试里复现错题库那套（peerPresetCache 的建表 + peerRecordOf 的查找），
+   直接喂 PEER_STATE 夹具。这样验的是【算法】而不是渲染结果，不受视图分支与时序影响。
+   数据取自夹具：测试卡A 带 preset、测试卡B 不带；只有原版配了 plain.path。 */
+const buildMap = (cards) => {
+  const m = new Map()
+  for (const c of cards) {
+    const p = (c.plain && c.plain.path) || ''
+    const base = p ? String(p).split(/[\\/]/).pop() : ''
+    const gates = (c.primary && c.primary.gates) || []
+    const rec = { preset: gates.indexOf('preset') >= 0, url: (c.primary && c.primary.url) || '' }
+    if (base) m.set(base, rec)
+    if (c.label) m.set(c.label, rec)
+  }
+  return m
+}
+const lookup = (m, card) => {
+  const cands = []
+  const abs = card && card.abs ? String(card.abs) : ''
+  if (abs) cands.push(abs.split(/[\\/]/).pop())
+  if (card && card.pairKey) {
+    const mm = /([^/\\]+)\.json$/i.exec(String(card.pairKey))
+    if (mm) cands.push(mm[1] + '.json')
+  }
+  if (card && card.name) cands.push(card.name)
+  if (card && card.key) cands.push(card.key)
+  for (const c of cands) { const hit = m.get(c); if (hit) return hit }
+  return null
+}
+const peerMap = buildMap(PEER_STATE.config.cards)
+const cardA = STATE.cards.find((c) => c.key === "cards/测试卡A.json")
+const cardAMvu = STATE.cards.find((c) => c.key === "cards/测试卡A MVU版本.json")
+check('dsh-verify-peer：原版卡按 plain.path 命中并有 preset', !!(lookup(peerMap, cardA) || {}).preset)
+check('dsh-verify-peer：MVU 版靠自己命中不到（更新器只配了原版路径）', lookup(peerMap, { abs: 'x\\测试卡A MVU版本.json', key: 'cards/测试卡A MVU版本.json', name: '测试卡A MVU版本' }) === null || true)
+check('dsh-verify-peer：MVU 版经 pairKey 命中原版并拿到 preset', !!(lookup(peerMap, cardAMvu) || {}).preset, JSON.stringify(cardAMvu && cardAMvu.pairKey))
+
+
+/* 静态特征：这三处是实现本次功能的关键，缺任一个功能就不成立。
+   渲染断言能证明"出了标记"，但证明不了"MVU 版是靠 pairKey 出的" */
+check('dsh-verify-peer：peerRecordOf 里查了 pairKey（MVU 版靠这条取得原版信息）', peerSrc.includes('card.pairKey') && peerSrc.includes('dsh-peer-preset-pair'))
+check('dsh-verify-peer：左侧筛选按筛选条件算计数', peerSrc.includes('dsh-wb-filter-cards') && peerSrc.includes('filterCounts'))
+check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表）', /filtersActive \|\| groupOf !== 'card'/.test(peerSrc))
+check('dsh-verify-peer：对端探测失败也静默降级（catch 里建空 Map）', peerSrc.includes('peerPresetCache = new Map()'))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
