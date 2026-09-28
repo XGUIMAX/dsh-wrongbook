@@ -849,14 +849,27 @@ window.__ModuleLoader__.load({
                   card.kind === 'mvu' ? 'MVU' : t('chip.plain'),
                 ),
             card.missing ? h('span', { className: 'dwb-chip warn' }, '!') : null,
-            peer && peer.preset
-              ? h('span', {
+            /* dsh-wb-recpreset-badge —— 专属与推荐分开显示。
+             *
+             * 两者语义不同：专属是作者随卡附带的预设（拿它开卡），
+             * 推荐是作者建议你另找一份来搭配（可能是通用的或别人的）。
+             * 混成一个标记，看的人不知道该去取什么。
+             *
+             * 用表驱动而不是再写一个三元分支 —— 渲染分支上堆条件出过事，
+             * 一次异常就把整个面板拖成白屏。多一种类型只要往表里加一行。
+             */
+            ...[
+              ['preset', '专属预设', '另附专用预设'],
+              ['recommended', '推荐预设', '推荐/建议使用某个预设'],
+            ]
+              .filter(([key]) => peer && peer.gates && peer.gates.indexOf(key) >= 0)
+              .map(([key, text, why]) =>
+                h('span', {
+                  key: 'peer-' + key,
                   className: 'dwb-chip preset',
-                  title:
-                    '卡片更新器检测到这张卡另附专用预设' +
-                    (peer.url ? '（来源：' + peer.url + '）' : ''),
-                }, '专属预设')
-              : null,
+                  title: '卡片更新器检测到这张卡' + why + (peer.url ? '（来源：' + peer.url + '）' : ''),
+                }, text),
+              ),
             h('span', { className: 'dwb-item-sub' }, `${(card.count && card.count.total) || 0}`),
           ),
         ),

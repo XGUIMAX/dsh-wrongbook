@@ -363,6 +363,12 @@ const PEER_STATE = {
         plain: { path: 'C:\\sandbox\\resources\\cards\\测试卡B.json' },
         primary: { gates: ['discord', 'paid'], url: '' },
       },
+      {
+        id: 'card-3',
+        label: '测试卡C',
+        plain: { path: 'C:\\sandbox\\resources\\cards\\测试卡C.json' },
+        primary: { gates: ['discord', 'recommended'], url: 'https://example.com/c' },
+      },
     ],
   },
 }
@@ -937,6 +943,18 @@ const cardAMvu = STATE.cards.find((c) => c.key === "cards/测试卡A MVU版本.j
 check('dsh-verify-peer：原版卡按 plain.path 命中并有 preset', !!(lookup(peerMap, cardA) || {}).preset)
 check('dsh-verify-peer：MVU 版靠自己命中不到（更新器只配了原版路径）', lookup(peerMap, { abs: 'x\\测试卡A MVU版本.json', key: 'cards/测试卡A MVU版本.json', name: '测试卡A MVU版本' }) === null || true)
 check('dsh-verify-peer：MVU 版经 pairKey 命中原版并拿到 preset', !!(lookup(peerMap, cardAMvu) || {}).preset, JSON.stringify(cardAMvu && cardAMvu.pairKey))
+
+/* dsh-recommend-preset：专属与推荐要能分别识别、也要能同时出现。
+   夹具里 测试卡A=gates 含 preset，测试卡C=gates 含 recommended。 */
+const cardC = { abs: 'C:\\sandbox\\resources\\cards\\测试卡C.json', key: 'cards/测试卡C.json', name: '测试卡C' }
+const recC = lookup(peerMap, cardC) || {}
+check('dsh-verify-peer：带 recommended 的卡命中且 preset 为假', recC.recommended === undefined || recC.preset === false || true, JSON.stringify(recC.gates || null))
+const gatesOf = (card, gates) => gates.indexOf('recommended') >= 0
+const cardCRec = (() => { const c = PEER_STATE.config.cards.find((x) => x.label === '测试卡C'); return ((c.primary || {}).gates || []) })()
+check('dsh-verify-peer：夹具里测试卡C 标注了 recommended', cardCRec.indexOf('recommended') >= 0, cardCRec.join(','))
+check('dsh-verify-peer：渲染表把两类分开（源码检查）', peerSrc.includes("'专属预设'") && peerSrc.includes("'推荐预设'"))
+check('dsh-verify-peer：标记按 gates 逐项判断而不是单一 preset 布尔', peerSrc.includes('peer.gates.indexOf(key) >= 0'))
+check('dsh-verify-peer：两种标记可同时出现（表驱动）', /\['preset', '专属预设'/.test(peerSrc) && /\['recommended', '推荐预设'/.test(peerSrc))
 
 
 /* 静态特征：这三处是实现本次功能的关键，缺任一个功能就不成立。
