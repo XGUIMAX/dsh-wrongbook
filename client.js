@@ -78,6 +78,7 @@ window.__ModuleLoader__.load({
       'cards.title': '卡片分类',
       'cards.title.other': '其它分类',
       'cards.empty': '卡片目录里还没有 JSON 卡片。',
+      'cards.filtered': '没有符合当前筛选的卡片 —— 换个条件，或把状态/范围调回「全部」。',
       'cards.missing': '文件已不在卡片目录',
       'count.open': '未解决',
       'count.watch': '观察中',
@@ -307,6 +308,7 @@ window.__ModuleLoader__.load({
       'cards.title': 'Card buckets',
       'cards.title.other': 'Other buckets',
       'cards.empty': 'No card JSON found in the card directory.',
+      'cards.filtered': 'No card matches the current filter - try another one, or set status/scope back to all.',
       'cards.missing': 'File no longer in the card directory',
       'count.open': 'open',
       'count.watch': 'watch',
@@ -2474,7 +2476,14 @@ window.__ModuleLoader__.load({
                   { className: 'dwb-list' },
                   groupCards.map((card) => h(CardRow, { key: card.key, card, active: card.key === selectedKey, onPick: setSelectedKey })),
                 )
-              : h('div', { className: 'dwb-empty' }, isOther ? t('bucket.empty') : t('cards.empty')),
+              // dsh-filter-fix —— 空列表有三种成因，别都说成"目录没有卡"：
+              //   手建分类为空 / 筛选后为空 / 卡片目录真的没卡。
+              // 第二种是我加了左侧筛选之后才有的，文案不对会看起来像坏了。
+              : h('div', { className: 'dwb-empty' },
+                  isOther
+                    ? t('bucket.empty')
+                    : (filtersActive && cards.length ? t('cards.filtered') : t('cards.empty')),
+                ),
           ),
           h(
             'div',

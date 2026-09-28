@@ -963,6 +963,28 @@ check('dsh-verify-peer：peerRecordOf 里查了 pairKey（MVU 版靠这条取得
 check('dsh-verify-peer：左侧筛选按筛选条件算计数', peerSrc.includes('dsh-wb-filter-cards') && peerSrc.includes('filterCounts'))
 check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表）', /filtersActive \|\| groupOf !== 'card'/.test(peerSrc))
 check('dsh-verify-peer：对端探测失败也静默降级（catch 里建空 Map）', peerSrc.includes('peerPresetCache = new Map()'))
+const verSrc = fs.readFileSync(SRC, 'utf8')
+
+/* ---- dsh-filter-test：筛选与空列表文案 ---- */
+
+/* 空列表有三种成因，文案要区分开。
+   本组用例的由来：加了左侧筛选之后，筛掉全部卡片时会显示
+   「卡片目录里还没有 JSON 卡片」—— 看着像目录坏了，其实只是筛选没命中。 */
+check('dsh-filter-test：词典里有 filtered 文案（中英）',
+  verSrc.includes("'cards.filtered'") && (verSrc.match(/'cards\.filtered'/g) || []).length >= 2,
+  String((verSrc.match(/'cards\.filtered'/g) || []).length))
+check('dsh-filter-test：空列表按「筛选后为空」与「目录没卡」分流',
+  /filtersActive && cards\.length \? t\('cards\.filtered'\) : t\('cards\.empty'\)/.test(verSrc))
+check('dsh-filter-test：手建分类仍用自己的文案', verSrc.includes("t('bucket.empty')"))
+
+/* 左侧筛选的判据：只在有筛选时才过滤，且只过滤人物卡那组。 */
+check('dsh-filter-test：筛选只在有值时生效', verSrc.includes('filtersActive'))
+check('dsh-filter-test：只过滤人物卡分组', verSrc.includes("groupOf !== 'card'"))
+check('dsh-filter-test：按状态与范围两个维度计数', verSrc.includes('filterCounts') && verSrc.includes('filterStatus') && verSrc.includes('filterScope'))
+
+/* 专属预设与推荐预设要能分别识别。 */
+check('dsh-filter-test：两类标记的文案都在', verSrc.includes("'专属预设'") && verSrc.includes("'推荐预设'"))
+check('dsh-filter-test：标记按 gates 逐项判断', verSrc.includes('peer.gates.indexOf(key) >= 0'))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
