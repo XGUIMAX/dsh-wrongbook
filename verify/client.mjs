@@ -985,6 +985,28 @@ check('dsh-filter-test：按状态与范围两个维度计数', verSrc.includes(
 /* 专属预设与推荐预设要能分别识别。 */
 check('dsh-filter-test：两类标记的文案都在', verSrc.includes("'专属预设'") && verSrc.includes("'推荐预设'"))
 check('dsh-filter-test：标记按 gates 逐项判断', verSrc.includes('peer.gates.indexOf(key) >= 0'))
+/* ---- dsh-drop-test：拖拽导入 ---- */
+
+check('dsh-drop-test：文本框接受拖拽', verSrc.includes('onDragOver') && verSrc.includes('onDrop'))
+check('dsh-drop-test：读文件用 FileReader', verSrc.includes('FileReader') && verSrc.includes('readAsText'))
+check('dsh-drop-test：拖拽中有高亮 class', verSrc.includes('dwb-drag') && verSrc.includes("' dwb-drag'"))
+check('dsh-drop-test：拖拽状态用的是 useState', verSrc.includes('const [dragOver, setDragOver] = useState'))
+check('dsh-drop-test：不做全局 drop 劫持（拖拽只挂在 textarea 上）',
+  /onDrop:[\s\S]{0,1500}readAsText/.test(verSrc) && !/addEventListener\(.drop./.test(verSrc))
+check('dsh-drop-test：解析仍只有一条路径（拖拽只填文本，不直接导入）',
+  !/onDrop:[\s\S]{0,600}?doImport\(/.test(verSrc))
+
+/* 占位符成对：代码里 replace 的键必须在词典里有对应的占位。
+   我写错过一次（词典 {name} / 代码 {n}），不报错、只是提示里少个名字。 */
+const replaces = [...verSrc.matchAll(/\.replace\('\{([a-z]+)\}',/g)].map((m) => m[1])
+const dictPlaceholders = [...new Set([...verSrc.matchAll(/'\{([a-z]+)\}'/g)].map((m) => m[1]))]
+const orphans = [...new Set(replaces)].filter((k) => !dictPlaceholders.includes(k))
+check('dsh-drop-test：没有孤儿占位符（replace 的键在词典里存在）', orphans.length === 0, orphans.join(','))
+
+/* 词典里出现的占位符，除了纯展示用的，都该被 replace 一次以上。
+   反向也会出问题：词典写了 {name} 而代码没替换，用户看到的就是带花括号的原文。 */
+const unusedInDrop = ['name'].filter((k) => !replaces.includes(k))
+check('dsh-drop-test：拖拽提示里的 {name} 被实际替换', unusedInDrop.length === 0, unusedInDrop.join(','))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1

@@ -199,6 +199,10 @@ window.__ModuleLoader__.load({
       'ok.backupDir': '备份目录已改为 {dir}',
       'ok.backupDirReset': '备份目录已恢复默认',
       'import.hint': '粘贴错题库 JSON：整份导出文件（含 entries）或直接一个条目数组。同卡同标题的条目会跳过。',
+      'import.dropOk': '已读入 {name} —— 确认内容后点「开始导入」。',
+      'import.dropMulti': '拖入了多个文件，只读第一个（{name}）。',
+      'import.dropTooBig': '文件太大（超过 4 MB），请确认是不是选错了文件。',
+      'import.dropFail': '读取失败 —— 检查文件权限，或改用粘贴。',
       'import.submit': '开始导入',
       'rename.hint': '只改显示名，不动卡片文件；留空则回到卡片文件名。',
       'misc.updated': '更新于',
@@ -430,6 +434,10 @@ window.__ModuleLoader__.load({
       'ok.backupDir': 'Backup folder changed to {dir}',
       'ok.backupDirReset': 'Backup folder reset to default',
       'import.hint': 'Paste wrongbook JSON: a full export (with entries) or a bare array. Entries with the same card and title are skipped.',
+      'import.dropOk': 'Loaded {name} - check it, then press Import.',
+      'import.dropMulti': 'Several files were dropped; only the first ({name}) was read.',
+      'import.dropTooBig': 'That file is over 4 MB - is it the right one?',
+      'import.dropFail': 'Could not read it - check permissions, or paste instead.',
       'import.submit': 'Import',
       'rename.hint': 'Display name only; the card file is untouched. Empty falls back to the file name.',
       'misc.updated': 'updated',
@@ -611,6 +619,7 @@ window.__ModuleLoader__.load({
       '.dwb-stat-k{font-size:10px;color:var(--dsw-alias-label-secondary)}',
       '.dwb-stat-v{font-size:12px;font-weight:600;word-break:break-all}',
       '.dwb-area.tall{min-height:110px;font-family:ui-monospace,Consolas,monospace;font-size:11px}',
+      '.dwb-area.dwb-drag{border-color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-3)}',
       '.dwb-input.narrow{width:64px;min-width:64px}',
       // 目录浏览弹窗：参照卡片更新器的做法，自己列目录、自己选，不赌宿主的选择器。
       '.dwb-overlay{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.42);padding:24px}',
@@ -1526,7 +1535,8 @@ window.__ModuleLoader__.load({
       const [lookup, setLookup] = useState(null)
       const [pending, setPending] = useState(null)
       const [importText, setImportText] = useState('')
-      const [importOpen, setImportOpen] = useState(false)
+      const [dragOver, setDragOver] = useState(false)
+const [importOpen, setImportOpen] = useState(false)
       const [renameOpen, setRenameOpen] = useState(false)
       const [renameText, setRenameText] = useState('')
       const [bucketOpen, setBucketOpen] = useState(false)
@@ -2807,10 +2817,44 @@ window.__ModuleLoader__.load({
                 'div',
                 { className: 'dwb-col' },
                 h('div', { className: 'dwb-sub' }, t('import.hint')),
+                /* dsh-drag-import —— 支持把 .json 文件直接拖进来。
+                 *
+                 * 拖拽目标限定在这个文本框上，不做全局 drop：宿主自己也有拖拽行为，
+                 * 全局接管会跟它打架。文本框只在导入面板打开时存在，所以效果上等同于
+                 * "在导入区域拖放"。
+                 *
+                 * 只读文本、不解析 —— 解析仍交给「开始导入」那一条路径，
+                 * 免得出现两套校验。多文件时取第一个并说明，静默忽略会让人误会。
+                 */
                 h('textarea', {
-                  className: 'dwb-area tall',
+                  className: 'dwb-area tall' + (dragOver ? ' dwb-drag' : ''),
                   value: importText,
                   onChange: (ev) => setImportText(ev.target.value),
+                  onDragOver: (ev) => {
+                    ev.preventDefault();
+                    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+                    if (!dragOver) setDragOver(true);
+                  },
+                  onDragLeave: () => { if (dragOver) setDragOver(false); },
+                  onDrop: (ev) => {
+                    ev.preventDefault();
+                    setDragOver(false);
+                    const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+                    if (!files.length) return;
+                    const file = files[0];
+                    if (files.length > 1) push(t('import.dropMulti').replace('{name}', file.name), 'info');
+                    if (file.size > 4 * 1024 * 1024) {
+                      push(t('import.dropTooBig'), 'bad');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setImportText(String(reader.result || ''));
+                      push(t('import.dropOk').replace('{name}', file.name), 'ok');
+                    };
+                    reader.onerror = () => push(t('import.dropFail'), 'bad');
+                    reader.readAsText(file, 'utf-8');
+                  },
                   placeholder: '{ "entries": [ { "cardKey": "cards/xxx.json", "title": "…" } ] }',
                 }),
                 h(
