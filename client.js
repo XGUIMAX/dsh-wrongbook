@@ -30,6 +30,29 @@ window.__ModuleLoader__.load({
       'tab.scripts': '卡脚本',
       'tab.patch': '宿主补丁',
       'tab.backup': '备份与还原',
+      'tab.common': '通用脚本',
+      'common.libTitle': '通用脚本库',
+      'common.libHint': '这些脚本不挑卡，装到哪张卡就能在哪张卡用。库目录在 data/tools/wrongbook/common-scripts/，不属于任何一张卡。',
+      'common.libEmpty': '库里还没有脚本 —— 把脚本 JSON 放进 data/tools/wrongbook/common-scripts/ 即可。',
+      'common.refresh': '刷新',
+      'common.broken': '文件读取失败',
+      'common.onCards': '已装 {n} 张',
+      'common.recommend': '建议：',
+      'common.cardsTitle': 'MVU 卡安装状态（',
+      'common.cardsHint': '按既定纪律只装 MVU 版，原版卡保持干净的参照状态、不动。徽章：已装=库里同版；版本不同=卡上那份与库里不一致（库里更新过脚本时会出现）；未装=这张卡还没有。',
+      'common.scripts': '{n} 个脚本',
+      'common.cardsEmpty': '没找到 MVU 卡。',
+      'common.installed': '已装',
+      'common.differs': '版本不同',
+      'common.absent': '未装',
+      'common.installAll': '全部装上',
+      'common.removeAll': '全部卸下',
+      'common.installOne': '装',
+      'common.removeOne': '卸',
+      'common.originalsTitle': '原版卡（不动，仅列出）（',
+      'common.originalsHint': '原版卡是可对照的参照物，这里只列出、不提供装卸入口。要试脚本请改 MVU 版。',
+      'common.done': '完成，处理了 {n} 张卡。',
+      'common.fail': '失败 —— 看运行日志里的具体原因。',
       'search.ph': '跨卡查询：症状、标签、报错原文…',
       'filter.status': '全部状态',
       'filter.scope': '全部范围',
@@ -266,6 +289,29 @@ window.__ModuleLoader__.load({
       'tab.scripts': 'Card scripts',
       'tab.patch': 'Host patches',
       'tab.backup': 'Backups',
+      'tab.common': 'Common scripts',
+      'common.libTitle': 'Common script library',
+      'common.libHint': 'These scripts are not tied to any card. Drop them in and every card can use them. Location: data/tools/wrongbook/common-scripts/.',
+      'common.libEmpty': 'The library is empty - put script JSON files into data/tools/wrongbook/common-scripts/.',
+      'common.refresh': 'Refresh',
+      'common.broken': 'unreadable',
+      'common.onCards': 'on {n} cards',
+      'common.recommend': 'Recommended: ',
+      'common.cardsTitle': 'MVU card status (',
+      'common.cardsHint': 'Per the standing rule, only MVU builds get them; the originals stay clean as reference. Badges: installed = same build as the library; differs = the copy on the card is not the one in the library; absent = not present.',
+      'common.scripts': '{n} scripts',
+      'common.cardsEmpty': 'No MVU cards found.',
+      'common.installed': 'installed',
+      'common.differs': 'differs',
+      'common.absent': 'absent',
+      'common.installAll': 'Install on all',
+      'common.removeAll': 'Remove from all',
+      'common.installOne': 'Install',
+      'common.removeOne': 'Remove',
+      'common.originalsTitle': 'Originals (listed only, untouched) (',
+      'common.originalsHint': 'Originals are the reference copies; they are listed here but have no install buttons. Try scripts on the MVU build instead.',
+      'common.done': 'Done - handled {n} cards.',
+      'common.fail': 'failed - see the run log for the reason.',
       'search.ph': 'Cross-card search: symptom, tag, error text…',
       'filter.status': 'All statuses',
       'filter.scope': 'All scopes',
@@ -1668,6 +1714,46 @@ const [importOpen, setImportOpen] = useState(false)
       const currentCard = groupCards.find((c) => c.key === selectedKey) || null
 
       /** 切页签时把选中项挪到该组里，否则右栏会显示上一组的分类。 */
+      /* dsh-common-tab —— 通用脚本页签的状态。
+       *
+       * 数据不放在 statePayload 里：那要读 8 张 MVU 卡（30MB+），
+       * 每次开面板都扫会明显拖慢。改成切到这个页签时才拉一次。
+       */
+      const [common, setCommon] = useState(null)
+      const [commonBusy, setCommonBusy] = useState(false)
+
+      const loadCommon = useCallback(async () => {
+        setCommonBusy(true)
+        try {
+          const r = await apiAction({ action: 'commonScripts' })
+          if (r && r.ok) setCommon(r)
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }, [push])
+
+      /* 首次切到这个页签时拉一次；之后靠手动刷新，避免每次点击都读盘。 */
+      useEffect(() => {
+        if (view === 'common' && !common && !commonBusy) void loadCommon()
+      }, [view, common, commonBusy, loadCommon])
+
+      const doCommon = async (action, payload, label) => {
+        setCommonBusy(true)
+        try {
+          const r = await apiAction(Object.assign({ action }, payload))
+          if (!r || !r.ok) { push(label + t('common.fail'), 'bad'); return }
+          const list = Array.isArray(r.results) ? r.results : []
+          const done = list.filter((x) => x.ok && !x.skipped).length
+          push(label + t('common.done').replace('{n}', done), done ? 'ok' : 'info')
+          await loadCommon()
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
       const pickView = (next) => {
         setView(next)
         // 备份与卡脚本两页跟"选中哪个分类"无关，别去动它。
@@ -2707,6 +2793,120 @@ const [importOpen, setImportOpen] = useState(false)
 
       /* --------------------------------------------------- 备份视图 */
 
+      /* dsh-common-tab —— 通用脚本页签。
+       *
+       * 回答三个问题：库里有什么、每张卡装没装、建议装哪些。
+       * 未装/已装/版本不同用不同颜色的徽章区分 —— 版本不同那条尤其重要，
+       * 库里更新过脚本但卡上还是旧的时候，只看"已装"是看不出来的。
+       */
+      const commonView = (() => {
+        const lib = (common && common.lib) || []
+        const allCards = (common && common.cards) || []
+        const cards = allCards.filter((c) => c.mvu)
+        const others = allCards.filter((c) => !c.mvu)
+
+        const badge = (st) => {
+          if (st === 'ok') return h('span', { className: 'dwb-chip ok' }, t('common.installed'))
+          if (st === 'differs') return h('span', { className: 'dwb-chip warn' }, t('common.differs'))
+          return h('span', { className: 'dwb-chip' }, t('common.absent'))
+        }
+
+        return h(
+
+          'div',
+          { className: 'dwb-col', style: { gap: 10 } },
+          /* 库 */
+          h(
+            'div',
+            { className: 'dwb-card' },
+            h(
+              'div',
+              { className: 'dwb-row' },
+              h('span', { className: 'dwb-title dwb-grow' }, t('common.libTitle')),
+              h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void loadCommon(), disabled: commonBusy }, t('common.refresh')),
+            ),
+            h('div', { className: 'dwb-hint' }, t('common.libHint')),
+            lib.length
+              ? h(
+                  'div',
+                  { className: 'dwb-col', style: { gap: 6 } },
+                  lib.map((L) => {
+                    const installedOn = cards.filter((c) => (c.installed || []).some((i) => i.name === L.name && i.state !== 'absent')).length
+                    return h(
+                      'div',
+                      { className: 'dwb-card flat', key: L.file },
+                      h(
+                        'div',
+                        { className: 'dwb-row' },
+                        h('span', { className: 'dwb-title dwb-grow' }, L.name),
+                        L.broken ? h('span', { className: 'dwb-chip bad' }, t('common.broken')) : null,
+                        h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
+                        h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', installedOn) + '/' + cards.length),
+                      ),
+                      L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
+                      L.meta && L.meta.recommend ? h('div', { className: 'dwb-sub' }, t('common.recommend') + L.meta.recommend) : null,
+                    )
+                  }),
+                )
+              : h('div', { className: 'dwb-empty' }, t('common.libEmpty')),
+          ),
+
+          /* 各 MVU 卡 */
+          h(
+            'div',
+            { className: 'dwb-card' },
+            h(
+              'div',
+              { className: 'dwb-row' },
+              h('span', { className: 'dwb-title dwb-grow' }, t('common.cardsTitle') + cards.length + ')'),
+              h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void doCommon('installCommon', {}, t('common.installAll')), disabled: commonBusy }, t('common.installAll')),
+              h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void doCommon('removeCommon', {}, t('common.removeAll')), disabled: commonBusy }, t('common.removeAll')),
+            ),
+            h('div', { className: 'dwb-hint' }, t('common.cardsHint')),
+            cards.length
+              ? h(
+                  'div',
+                  { className: 'dwb-col', style: { gap: 6 } },
+                  cards.map((c) => h(
+                    'div',
+                    { className: 'dwb-card flat', key: c.file },
+                    h(
+                      'div',
+                      { className: 'dwb-row' },
+                      h('span', { className: 'dwb-grow' }, c.label),
+                      h('span', { className: 'dwb-sub' }, t('common.scripts').replace('{n}', c.scriptCount)),
+                    ),
+                    h(
+                      'div',
+                      { className: 'dwb-row' },
+                      (c.installed || []).map((i) => h(
+
+                        'span',
+                        { className: 'dwb-row', key: i.name, style: { gap: 4 } },
+                        h('span', { className: 'dwb-sub' }, i.name),
+                        badge(i.state),
+                      )),
+                      h('span', { className: 'dwb-grow' }),
+                      h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void doCommon('installCommon', { cards: [c.file] }, t('common.installOne')), disabled: commonBusy }, t('common.installOne')),
+                      h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void doCommon('removeCommon', { cards: [c.file] }, t('common.removeOne')), disabled: commonBusy }, t('common.removeOne')),
+                    ),
+                  )),
+                )
+              : h('div', { className: 'dwb-empty' }, t('common.cardsEmpty')),
+          ),
+
+          /* 原版卡：只列出来说明不动 */
+          others.length
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h('div', { className: 'dwb-title' }, t('common.originalsTitle') + others.length + ')'),
+                h('div', { className: 'dwb-hint' }, t('common.originalsHint')),
+                h('div', { className: 'dwb-sub' }, others.map((c) => c.label).join(' · ')),
+              )
+            : null,
+        )
+      })()
       const backupView = h(
         Fragment,
         null,
@@ -3094,6 +3294,11 @@ const [importOpen, setImportOpen] = useState(false)
                 { type: 'button', className: `dwb-tab${view === 'backup' ? ' on' : ''}`, onClick: () => pickView('backup') },
                 t('tab.backup'),
               ),
+              h(
+                'button',
+                { type: 'button', className: `dwb-tab${view === 'common' ? ' on' : ''}`, onClick: () => pickView('common') },
+                t('tab.common'),
+              ),
             ),
             h('span', { className: 'dwb-grow' }),
             h('span', { className: 'dwb-sub' }, t('misc.entriesCount').replace('{n}', entries.length)),
@@ -3106,7 +3311,7 @@ const [importOpen, setImportOpen] = useState(false)
                 message.hint ? h('span', { className: 'dwb-sub' }, message.hint) : null,
               )
             : null,
-          view === 'backup' ? backupView : view === 'scripts' ? scriptsView : view === 'patch' ? patchView : entriesView,
+          view === 'backup' ? backupView : view === 'common' ? commonView : view === 'scripts' ? scriptsView : view === 'patch' ? patchView : entriesView,
           h(
             'div',
             { className: 'dwb-card dwb-card flat' },

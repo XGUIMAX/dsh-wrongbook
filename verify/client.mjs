@@ -734,11 +734,11 @@ const tabs = findByClass(tree, 'dwb-tab')
 // 按文案取页签，别用索引 —— 加一个页签就会让后面所有索引错位，
 // 而错位之后报的是"备份页没渲染"，看不出真正原因是页签多了一个。
 const tabNamed = (label) => tabs.find((n) => n.children.join('').includes(label))
-check('渲染出五个页签', tabs.length === 5, String(tabs.length))
+check('渲染出六个页签', tabs.length === 6, String(tabs.length))
 check('默认停在人物卡错题页', tabs[0] && tabs[0].props.className.includes('on'), tabs.map((n) => n.props.className).join('|'))
 check(
   '页签文案正确',
-  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|卡脚本|宿主补丁|备份与还原',
+  tabs.map((n) => n.children.join('')).join('|') === '人物卡错题|其它错题|卡脚本|宿主补丁|备份与还原|通用脚本',
   tabs.map((n) => n.children.join('')).join('|'),
 )
 check('错题页渲染查询工具条', findByClass(tree, 'dwb-bar').length >= 1)
@@ -808,7 +808,7 @@ check(
 const scriptTabs = findByClass(scriptTree, 'dwb-tab')
 // 同样按文案找 —— 原来写死 [3]，加页签后点到的是"宿主补丁"，
 // 于是下面十条全报"备份页没渲染"，真正的原因（页签多了一个）反而看不见。
-scriptTabs.find((n) => n.children.join('').includes('备份与还原')).props.onClick()
+scriptTabs.find((n) => n.children.join('').includes('备份与还原') && out.texts.includes('通用脚本')).props.onClick()
 const backupTree = renderOnce()
 const backupRows = findByClass(backupTree, 'dwb-backup')
 check('备份页渲染出备份行', backupRows.length === 2, String(backupRows.length))
@@ -1007,6 +1007,47 @@ check('dsh-drop-test：没有孤儿占位符（replace 的键在词典里存在�
    反向也会出问题：词典写了 {name} 而代码没替换，用户看到的就是带花括号的原文。 */
 const unusedInDrop = ['name'].filter((k) => !replaces.includes(k))
 check('dsh-drop-test：拖拽提示里的 {name} 被实际替换', unusedInDrop.length === 0, unusedInDrop.join(','))
+/* ---- dsh-common-tab-test：通用脚本页签 ---- */
+
+/* 真的切到这个页签再渲染 —— 不是只重渲一遍。
+   上次的教训：只验"源码里有这个词"不够，要让它真的跑一遍。
+   切页靠点那个按钮（走它自己的 onClick），这样 setView 才真的被调用。 */
+const _tabs = findByClass(renderOnce(), 'dwb-tab')
+const _commonTab = _tabs.find((n) => n.children.join('').includes('通用脚本'))
+check('dsh-common-tab-test：找到了通用脚本页签按钮', !!_commonTab)
+if (_commonTab) _commonTab.props.onClick()
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 80))
+const commonTree = renderOnce()
+
+check('dsh-common-tab-test：页签栏里有「通用脚本」', out.texts.includes('通用脚本'))
+check('dsh-common-tab-test：切页后仍不抛错（渲染出主分支）', !out.texts.includes('连不上后台'))
+
+/* 源码层：视图与词典成对。视图用到的每个 common.* 键都要在词典里有定义，
+   否则界面会显示 key 本身 —— 这类"半成品"在渲染测试里是看不出来的。 */
+const usedKeys = [...verSrc.matchAll(/t\('(common\.[a-zA-Z]+)'\)/g)].map((m) => m[1])
+const definedKeys = [...verSrc.matchAll(/'(common\.[a-zA-Z]+)':/g)].map((m) => m[1])
+const missingKeys = [...new Set(usedKeys)].filter((k) => !definedKeys.includes(k))
+check('dsh-common-tab-test：common.* 词典键没有缺失', missingKeys.length === 0, missingKeys.join(','))
+
+/* 视图与后端 action 成对：前端调了哪些 action，后端要认识。 */
+/* action 有两种传法：直接 apiAction({ action: 'x' })，或走 doCommon('x', …)。
+   只匹配前者会漏掉装/卸这两个（第一版就漏了，测试报 installCommon/removeCommon 缺失）。 */
+ const actions = [
+  ...[...verSrc.matchAll(/action: '([a-zA-Z]+)'/g)].map((m) => m[1]),
+  ...[...verSrc.matchAll(/doCommon\('([a-zA-Z]+)'/g)].map((m) => m[1]),
+]
+const commonActions = ['commonScripts', 'installCommon', 'removeCommon']
+check('dsh-common-tab-test：三个后端 action 都被前端调用',
+  commonActions.every((a) => actions.includes(a)), commonActions.filter((a) => !actions.includes(a)).join(','))
+
+/* 原版卡不给装卸入口 —— 页签里只应存在 MVU 卡的行。 */
+check('dsh-common-tab-test：原版卡只列出、没有装按钮',
+  verSrc.includes('c.mvu') && verSrc.includes("filter((c) => !c.mvu)"))
+
+/* 库与卡的数据来自后端，前端不能自己编。 */
+check('dsh-common-tab-test：数据来自 commonScripts 接口而非硬编码',
+  /commonScripts/.test(verSrc) && !/助手agent_v0\.15/.test((verSrc.match(/const commonView = \(\(\) => \{[\s\S]*?\}\)\(\)/) || [''])[0]))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
