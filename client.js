@@ -32,6 +32,20 @@ window.__ModuleLoader__.load({
       'tab.backup': '备份与还原',
       'tab.common': '通用脚本',
       'common.libTitle': '通用脚本库',
+      'common.importScript': '导入脚本',
+      'common.importHint': '把脚本 JSON 粘贴进来，或直接把文件拖到下面的框里。就是「导出脚本」得到的那种格式（含 name 与 content）。',
+      'common.importPlaceholder': '{ "name": "脚本名", "content": "…", "type": "script", "enabled": true }',
+      'common.doImport': '写入库',
+      'common.cancel': '取消',
+      'common.libDelete': '删除',
+      'common.importEmpty': '内容为空。',
+      'common.importOk': '已写入库：{name}',
+      'common.importReplaced': '（覆盖了同名脚本）',
+      'common.importFail': '导入失败 —— 看运行日志里的具体原因。',
+      'common.importTooBig': '文件太大（超过 8 MB），确认一下是不是选错了。',
+      'common.importReadFail': '读取失败 —— 检查文件权限，或改用粘贴。',
+      'common.deleteOk': '已从库里移除：{name}',
+      'common.deleteFail': '移除失败。',
       'common.libHint': '这些脚本不挑卡，装到哪张卡就能在哪张卡用。库目录在 data/tools/wrongbook/common-scripts/，不属于任何一张卡。',
       'common.libEmpty': '库里还没有脚本 —— 把脚本 JSON 放进 data/tools/wrongbook/common-scripts/ 即可。',
       'common.refresh': '刷新',
@@ -291,6 +305,20 @@ window.__ModuleLoader__.load({
       'tab.backup': 'Backups',
       'tab.common': 'Common scripts',
       'common.libTitle': 'Common script library',
+      'common.importScript': 'Import script',
+      'common.importHint': 'Paste the script JSON, or drop the file onto the box below. Same shape as Export gives you (name + content).',
+      'common.importPlaceholder': '{ "name": "my-script", "content": "…", "type": "script", "enabled": true }',
+      'common.doImport': 'Add to library',
+      'common.cancel': 'Cancel',
+      'common.libDelete': 'Delete',
+      'common.importEmpty': 'Nothing to import.',
+      'common.importOk': 'Added to library: {name}',
+      'common.importReplaced': ' (replaced the existing one)',
+      'common.importFail': 'Import failed - see the run log.',
+      'common.importTooBig': 'That file is over 8 MB - is it the right one?',
+      'common.importReadFail': 'Could not read it - check permissions, or paste instead.',
+      'common.deleteOk': 'Removed from library: {name}',
+      'common.deleteFail': 'Remove failed.',
       'common.libHint': 'These scripts are not tied to any card. Drop them in and every card can use them. Location: data/tools/wrongbook/common-scripts/.',
       'common.libEmpty': 'The library is empty - put script JSON files into data/tools/wrongbook/common-scripts/.',
       'common.refresh': 'Refresh',
@@ -1727,6 +1755,9 @@ const [importOpen, setImportOpen] = useState(false)
        * 每次开面板都扫会明显拖慢。改成切到这个页签时才拉一次。
        */
       const [common, setCommon] = useState(null)
+      const [commonOpen, setCommonOpen] = useState(false)
+      const [commonText, setCommonText] = useState('')
+      const [commonDrag, setCommonDrag] = useState(false)
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -1746,6 +1777,37 @@ const [importOpen, setImportOpen] = useState(false)
         if (view === 'common' && !common && !commonBusy) void loadCommon()
       }, [view, common, commonBusy, loadCommon])
 
+      /* 导入脚本：把粘贴或拖入的 JSON 交给后端写进库。 */
+      const importCommon = async () => {
+        if (!commonText.trim()) { push(t('common.importEmpty'), 'bad'); return }
+        setCommonBusy(true)
+        try {
+          const r = await apiAction({ action: 'importCommonScript', json: commonText })
+          if (!r || !r.ok) { push(t('common.importFail'), 'bad'); return }
+          push(t('common.importOk').replace('{name}', r.name) + (r.replaced ? t('common.importReplaced') : ''), 'ok')
+          setCommonText('')
+          setCommonOpen(false)
+          await loadCommon()
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
+
+      const deleteCommon = async (name) => {
+        setCommonBusy(true)
+        try {
+          const r = await apiAction({ action: 'deleteCommonScript', name })
+          if (!r || !r.ok) { push(t('common.deleteFail'), 'bad'); return }
+          push(t('common.deleteOk').replace('{name}', name), 'ok')
+          await loadCommon()
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
       const doCommon = async (action, payload, label) => {
         setCommonBusy(true)
         try {
@@ -2830,9 +2892,50 @@ const [importOpen, setImportOpen] = useState(false)
               'div',
               { className: 'dwb-row' },
               h('span', { className: 'dwb-title dwb-grow' }, t('common.libTitle')),
+              h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => setCommonOpen(!commonOpen) }, t('common.importScript')),
               h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void loadCommon(), disabled: commonBusy }, t('common.refresh')),
             ),
             h('div', { className: 'dwb-hint' }, t('common.libHint')),
+            /* dsh-import-common —— 导入脚本。复用导入错题那套：粘贴或拖入，
+               一个执行按钮。解析与校验全在后端，前端只做空值提示。 */
+            commonOpen
+              ? h(
+                  'div',
+                  { className: 'dwb-col' },
+                  h('div', { className: 'dwb-sub' }, t('common.importHint')),
+                  h('textarea', {
+                    className: 'dwb-area tall' + (commonDrag ? ' dwb-drag' : ''),
+                    value: commonText,
+                    onChange: (ev) => setCommonText(ev.target.value),
+                    onDragOver: (ev) => {
+                      ev.preventDefault();
+                      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+                      if (!commonDrag) setCommonDrag(true);
+                    },
+                    onDragLeave: () => { if (commonDrag) setCommonDrag(false); },
+                    onDrop: (ev) => {
+                      ev.preventDefault();
+                      setCommonDrag(false);
+                      const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+                      if (!files.length) return;
+                      const file = files[0];
+                      if (file.size > 8 * 1024 * 1024) {
+                        push(t('common.importTooBig'), 'bad');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => setCommonText(String(reader.result || ''));
+                      reader.onerror = () => push(t('common.importReadFail'), 'bad');
+                      reader.readAsText(file, 'utf-8');
+                    },
+                    placeholder: t('common.importPlaceholder'),
+                  }),
+                  h('div', { className: 'dwb-row' },
+                    h('button', { type: 'button', className: 'dwb-btn primary', onClick: () => void importCommon(), disabled: commonBusy || !commonText.trim() }, t('common.doImport')),
+                    h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => { setCommonOpen(false); setCommonText('') } }, t('common.cancel')),
+                  ),
+                )
+              : null,
             lib.length
               ? h(
                   'div',
@@ -2849,6 +2952,7 @@ const [importOpen, setImportOpen] = useState(false)
                         L.broken ? h('span', { className: 'dwb-chip bad' }, t('common.broken')) : null,
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', installedOn) + '/' + cards.length),
+                        h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
                       L.meta && L.meta.recommend ? h('div', { className: 'dwb-sub' }, t('common.recommend') + L.meta.recommend) : null,

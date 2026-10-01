@@ -1091,6 +1091,43 @@ check('dsh-card-marker-test：裸卡结构能读到', !!markerOfLike({ data: { e
 check('dsh-card-marker-test：套了 raw 一层也能读到', !!markerOfLike({ raw: { data: { extensions: { dsh_card_marker: { kind: 'original', label: '原版' } } } } }))
 check('dsh-card-marker-test：没有标记时返回 null（走回退）', markerOfLike({ data: { extensions: {} } }) === null)
 check('dsh-card-marker-test：标记缺 kind 时也返回 null', markerOfLike({ data: { extensions: { dsh_card_marker: { label: 'x' } } } }) === null)
+/* ---- dsh-import-common-test：导入脚本 ---- */
+
+check('dsh-import-common-test：库卡片的标题行有导入按钮', verSrc.includes("t('common.importScript')"))
+check('dsh-import-common-test：导入面板可展开', verSrc.includes('commonOpen') && verSrc.includes('setCommonOpen'))
+check('dsh-import-common-test：文本框支持拖入文件',
+  /onDragOver[\s\S]{0,2500}readAsText/.test(verSrc))
+check('dsh-import-common-test：库项可单独删除', verSrc.includes('deleteCommon(L.name)') || verSrc.includes('deleteCommon('))
+
+/* 前后端 action 成对（两种传法都要认）。 */
+const importActions = [
+  ...[...verSrc.matchAll(/action: '([a-zA-Z]+)'/g)].map((m) => m[1]),
+  ...[...verSrc.matchAll(/doCommon\('([a-zA-Z]+)'/g)].map((m) => m[1]),
+]
+check('dsh-import-common-test：前端调了 importCommonScript', importActions.includes('importCommonScript'))
+check('dsh-import-common-test：前端调了 deleteCommonScript', importActions.includes('deleteCommonScript'))
+check('dsh-import-common-test：后端认得 importCommonScript', hostSrc.includes("case 'importCommonScript'"))
+check('dsh-import-common-test：后端认得 deleteCommonScript', hostSrc.includes("case 'deleteCommonScript'"))
+
+/* 命名空间完整性：用了命名空间 import 的地方，调用必须带前缀。
+   lib/index.js 是 `import crypto from 'node:crypto'`，所以裸名 createHash 会 ReferenceError。 */
+const bareCrypto = [...hostSrc.matchAll(/(?<!crypto\.)(?<![\w$.])createHash\s*\(/g)]
+check('dsh-import-common-test：后端没有裸名 createHash（应写 crypto.createHash）',
+  bareCrypto.length === 0, bareCrypto.length + ' 处')
+
+/* 后端做了必要校验，不能盲写文件。 */
+check('dsh-import-common-test：导入前校验 JSON 可解析', /function importCommonScript[\s\S]{0,500}JSON\.parse/.test(hostSrc))
+check('dsh-import-common-test：导入前校验 name 与 content',
+  /function importCommonScript[\s\S]{0,1200}缺少 name/.test(hostSrc) && /function importCommonScript[\s\S]{0,1200}缺少 content/.test(hostSrc))
+check('dsh-import-common-test：挡住名字里的路径分隔符（会写到库目录外）',
+  /function importCommonScript[\s\S]{0,1500}不能用作文件名的字符/.test(hostSrc))
+
+/* 装卸只动 scripts 数组 —— 这条在 verify-install-safety.mjs 里做过逐字段实测，
+   这里只做静态确认：装卸路径不碰其它字段。 */
+check('dsh-import-common-test：装只 push 进 scripts 数组',
+  /installCommon[\s\S]{0,2000}scripts\.push\(/.test(hostSrc))
+check('dsh-import-common-test：卸只 filter scripts 数组',
+  /removeCommon[\s\S]{0,2000}scripts\.filter\(/.test(hostSrc))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
