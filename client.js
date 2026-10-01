@@ -900,10 +900,17 @@ window.__ModuleLoader__.load({
             { className: 'dwb-row', style: { gap: 4 } },
             card.group === 'other'
               ? h('span', { className: 'dwb-chip' }, t('chip.other'))
+              /* dsh-card-marker-badge —— 有卡型标记时显示标记的 label（如「已手改 MVU」），
+                 悬停看理由；没有标记的仍按原来的 原版/MVU 显示。 */
               : h(
                   'span',
-                  { className: `dwb-chip${card.kind === 'mvu' ? ' warn' : ''}` },
-                  card.kind === 'mvu' ? 'MVU' : t('chip.plain'),
+                  {
+                    className: `dwb-chip${card.marker ? ' ok' : card.kind === 'mvu' ? ' warn' : ''}`,
+                    title: card.marker
+                      ? [card.marker.label, card.marker.reason, card.marker.note].filter(Boolean).join('\n\n')
+                      : '',
+                  },
+                  card.marker ? card.marker.label : card.kind === 'mvu' ? 'MVU' : t('chip.plain'),
                 ),
             card.missing ? h('span', { className: 'dwb-chip warn' }, '!') : null,
             /* dsh-wb-recpreset-badge —— 专属与推荐分开显示。

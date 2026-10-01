@@ -965,6 +965,12 @@ check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表�
 check('dsh-verify-peer：对端探测失败也静默降级（catch 里建空 Map）', peerSrc.includes('peerPresetCache = new Map()'))
 const verSrc = fs.readFileSync(SRC, 'utf8')
 
+/* hostSrc：卡型标记那组要查后端，所以也读一份 lib/index.js。
+
+   测试文件原本只读了 client.js。 */
+
+const hostSrc = fs.readFileSync(fileURLToPath(new URL('../lib/index.js', import.meta.url)), 'utf8')
+
 /* ---- dsh-filter-test：筛选与空列表文案 ---- */
 
 /* 空列表有三种成因，文案要区分开。
@@ -1048,6 +1054,43 @@ check('dsh-common-tab-test：原版卡只列出、没有装按钮',
 /* 库与卡的数据来自后端，前端不能自己编。 */
 check('dsh-common-tab-test：数据来自 commonScripts 接口而非硬编码',
   /commonScripts/.test(verSrc) && !/助手agent_v0\.15/.test((verSrc.match(/const commonView = \(\(\) => \{[\s\S]*?\}\)\(\)/) || [''])[0]))
+/* ---- dsh-card-marker-test：卡型标记徽章 ---- */
+
+/* 后端：读标记的函数与三处透出。少一处就会出现"后端读到了、界面看不到"。 */
+check('dsh-card-marker-test：后端有 cardMarkerOf', hostSrc.includes('function cardMarkerOf'))
+check('dsh-card-marker-test：scanCards 优先用标记的 kind',
+  hostSrc.includes('(marker && marker.kind) ||') && hostSrc.includes('cardMarkerOf(abs, fs.statSync(abs))'))
+check('dsh-card-marker-test：scanCards 把 marker 带出去', hostSrc.includes('marker: marker || null,'))
+check('dsh-card-marker-test：syncCards 保留 marker（否则重新扫描后丢失）',
+  /function syncCards[\s\S]{0,900}marker: card\.marker/.test(hostSrc))
+check('dsh-card-marker-test：cardList 透出 marker（否则前端拿不到）',
+  hostSrc.includes("marker: card.marker || null,"))
+
+/* 读取有缓存 —— 读整张卡很贵（米吧 2MB、龙娘 11MB），不能每次全读。 */
+check('dsh-card-marker-test：读取带缓存，且以 大小+mtime 为键',
+  hostSrc.includes('cardMarkerCache') && /stamp = `\$\{full\}:\$\{st\.size\}:\$\{st\.mtimeMs\}`/.test(hostSrc))
+check('dsh-card-marker-test：缓存有上限，不会无限涨', hostSrc.includes('cardMarkerCache.size > 200'))
+
+/* 前端：有标记与无标记两条分支。 */
+check('dsh-card-marker-test：前端优先显示标记的 label', verSrc.includes('card.marker ? card.marker.label :'))
+check('dsh-card-marker-test：悬停给出理由', verSrc.includes('card.marker.reason'))
+check('dsh-card-marker-test：无标记时回退到 原版/MVU',
+  verSrc.includes("card.kind === 'mvu' ? 'MVU' : t('chip.plain')"))
+
+/* 行为验证：模拟后端读取逻辑，喂三种形态。 */
+const markerOfLike = (obj) => {
+  const card = (obj && obj.raw) || obj
+  const data = card && card.data && typeof card.data === 'object' ? card.data : card
+  const m = ((data || {}).extensions || {}).dsh_card_marker
+  if (m && typeof m === 'object' && m.kind) {
+    return { kind: String(m.kind), label: String(m.label || m.kind) }
+  }
+  return null
+}
+check('dsh-card-marker-test：裸卡结构能读到', !!markerOfLike({ data: { extensions: { dsh_card_marker: { kind: 'hand-tuned-mvu', label: '已手改 MVU' } } } }))
+check('dsh-card-marker-test：套了 raw 一层也能读到', !!markerOfLike({ raw: { data: { extensions: { dsh_card_marker: { kind: 'original', label: '原版' } } } } }))
+check('dsh-card-marker-test：没有标记时返回 null（走回退）', markerOfLike({ data: { extensions: {} } }) === null)
+check('dsh-card-marker-test：标记缺 kind 时也返回 null', markerOfLike({ data: { extensions: { dsh_card_marker: { label: 'x' } } } }) === null)
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
