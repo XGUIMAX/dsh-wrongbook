@@ -1162,6 +1162,50 @@ check('dsh-undefined-call-test：用的是 apiPost（不是 apiAction）',
 /* 后端：命名空间导入下的裸名调用（同一个坑的另一面）。 */
 const nsBare = [...hostSrc.matchAll(/(?<!crypto\.)(?<![\w$.])(createHash|randomUUID)\s*\(/g)].map((m) => m[1])
 check('dsh-undefined-call-test：后端没有裸名 crypto 函数', nsBare.length === 0, nsBare.join(','))
+/* ---- dsh-common-ui3-test：分类器 + 卡多选 + 批量装卸 ---- */
+
+/* 分类器：脚本多于一个才显示（只有一个时下拉没意义）。 */
+check('dsh-common-ui3-test：库项带 category 字段',
+  verSrc.includes("L.category || '未分类'") && hostSrc.includes("category: str("))
+check('dsh-common-ui3-test：分类下拉只在多个脚本时出现',
+  verSrc.includes('libAll.length > 1'))
+check('dsh-common-ui3-test：分类可筛选库列表',
+  /commonCat \? libAll\.filter/.test(verSrc))
+check('dsh-common-ui3-test：分类空态有单独文案', verSrc.includes("commonCat ? t('common.catEmpty')"))
+
+/* 卡多选：状态 + 勾选 + 全选/清空。 */
+check('dsh-common-ui3-test：有 selected 状态', verSrc.includes('const [commonPicked, setCommonPicked]'))
+check('dsh-common-ui3-test：每张卡有勾选框',
+  verSrc.includes("className: 'dwb-pick-input'") && verSrc.includes("type: 'checkbox'"))
+check('dsh-common-ui3-test：勾选框绑到 picked 集合', verSrc.includes('commonPicked.has(c.file)'))
+check('dsh-common-ui3-test：有全选与清空',
+  verSrc.includes('pickAll(true)') && verSrc.includes('pickAll(false)'))
+
+/* 关键：批量按钮真的把选中项传出去，而不是只加了个按钮。 */
+check('dsh-common-ui3-test：装上选中把 pickedList 传给后端',
+  /'installCommon', \{ cards: pickedList \}/.test(verSrc))
+check('dsh-common-ui3-test：卸下选中把 pickedList 传给后端',
+  /'removeCommon', \{ cards: pickedList \}/.test(verSrc))
+check('dsh-common-ui3-test：未选中时批量按钮禁用（否则会误伤全部）',
+  (verSrc.match(/disabled: commonBusy \|\| !pickedList\.length/g) || []).length >= 2)
+check('dsh-common-ui3-test：批量按钮显示已选数量',
+  verSrc.includes("' (' + pickedList.length + ')'"))
+
+/* 单选按钮保留，且只对那一张卡操作。 */
+check('dsh-common-ui3-test：单选仍按单卡传参',
+  /'installCommon', \{ cards: \[c\.file\] \}/.test(verSrc))
+
+/* 原版卡各包 chip，不能退回 join 拼行。 */
+check('dsh-common-ui3-test：原版卡名各包一个 chip',
+  /others\.map\(\(c\) => h\('span', \{ className: 'dwb-chip'/.test(verSrc))
+check('dsh-common-ui3-test：原版卡不再 join 成一行',
+  !/others\.map\(\(c\) => c\.label\)\.join/.test(verSrc))
+
+/* 后端两个 action 都接受 cards 白名单参数。 */
+check('dsh-common-ui3-test：后端 installCommon 支持 cards 过滤',
+  /function installCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
+check('dsh-common-ui3-test：后端 removeCommon 支持 cards 过滤',
+  /function removeCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
