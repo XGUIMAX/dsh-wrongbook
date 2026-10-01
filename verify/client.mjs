@@ -1128,6 +1128,40 @@ check('dsh-import-common-test：装只 push 进 scripts 数组',
   /installCommon[\s\S]{0,2000}scripts\.push\(/.test(hostSrc))
 check('dsh-import-common-test：卸只 filter scripts 数组',
   /removeCommon[\s\S]{0,2000}scripts\.filter\(/.test(hostSrc))
+/* ---- dsh-undefined-call-test：调用了却不存在的函数 ---- */
+
+/* 做法：把该文件里所有"看起来像自定义辅助函数"的调用名收集起来，
+   逐个确认它在文件里有定义（function xxx / const xxx =）。
+
+   只检查命名特征明显的（驼峰、且以常见动词/名词开头），避免把框架 API
+   和浏览器原生 API 全卷进来。这一条只针对 verSrc（client.js）。 */
+const CALL_WHITELIST = new Set([
+  'h', 't', 'push', 'useState', 'useEffect', 'useCallback', 'useRef', 'useMemo',
+  'findByClass', 'renderOnce', 'check', 'log', 'str', 'cls',
+  'function', 'if', 'for', 'while', 'switch', 'return', 'catch', 'typeof',
+])
+
+const localDefs = new Set()
+for (const m of verSrc.matchAll(/(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g)) localDefs.add(m[1])
+for (const m of verSrc.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) localDefs.add(m[1])
+
+/* 只取"本插件自己的辅助函数"这一小撮：api 开头、或 do/load/import/delete/save/apply 开头的驼峰名 */
+const customCalls = new Set()
+for (const m of verSrc.matchAll(/(?<![\w$.])((?:api|do|load|import|delete|save|apply|send|post|get)[A-Z][A-Za-z0-9_$]*)\s*\(/g)) {
+  customCalls.add(m[1])
+}
+
+const undefinedCalls = [...customCalls].filter((n) => !localDefs.has(n) && !CALL_WHITELIST.has(n))
+check('dsh-undefined-call-test：没有被调用却不存在的辅助函数',
+  undefinedCalls.length === 0, undefinedCalls.join(','))
+
+/* 顺带把本案两个具体名字钉住，避免回退。 */
+check('dsh-undefined-call-test：用的是 apiPost（不是 apiAction）',
+  verSrc.includes('apiPost(') && !verSrc.includes('apiAction'))
+
+/* 后端：命名空间导入下的裸名调用（同一个坑的另一面）。 */
+const nsBare = [...hostSrc.matchAll(/(?<!crypto\.)(?<![\w$.])(createHash|randomUUID)\s*\(/g)].map((m) => m[1])
+check('dsh-undefined-call-test：后端没有裸名 crypto 函数', nsBare.length === 0, nsBare.join(','))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1

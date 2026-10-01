@@ -1763,7 +1763,7 @@ const [importOpen, setImportOpen] = useState(false)
       const loadCommon = useCallback(async () => {
         setCommonBusy(true)
         try {
-          const r = await apiAction({ action: 'commonScripts' })
+          const r = await apiPost({ action: 'commonScripts' })
           if (r && r.ok) setCommon(r)
         } catch (e) {
           push(String((e && e.message) || e), 'bad')
@@ -1782,7 +1782,7 @@ const [importOpen, setImportOpen] = useState(false)
         if (!commonText.trim()) { push(t('common.importEmpty'), 'bad'); return }
         setCommonBusy(true)
         try {
-          const r = await apiAction({ action: 'importCommonScript', json: commonText })
+          const r = await apiPost({ action: 'importCommonScript', json: commonText })
           if (!r || !r.ok) { push(t('common.importFail'), 'bad'); return }
           push(t('common.importOk').replace('{name}', r.name) + (r.replaced ? t('common.importReplaced') : ''), 'ok')
           setCommonText('')
@@ -1798,7 +1798,7 @@ const [importOpen, setImportOpen] = useState(false)
       const deleteCommon = async (name) => {
         setCommonBusy(true)
         try {
-          const r = await apiAction({ action: 'deleteCommonScript', name })
+          const r = await apiPost({ action: 'deleteCommonScript', name })
           if (!r || !r.ok) { push(t('common.deleteFail'), 'bad'); return }
           push(t('common.deleteOk').replace('{name}', name), 'ok')
           await loadCommon()
@@ -1811,7 +1811,7 @@ const [importOpen, setImportOpen] = useState(false)
       const doCommon = async (action, payload, label) => {
         setCommonBusy(true)
         try {
-          const r = await apiAction(Object.assign({ action }, payload))
+          const r = await apiPost(Object.assign({ action }, payload))
           if (!r || !r.ok) { push(label + t('common.fail'), 'bad'); return }
           const list = Array.isArray(r.results) ? r.results : []
           const done = list.filter((x) => x.ok && !x.skipped).length
