@@ -39,6 +39,8 @@ window.__ModuleLoader__.load({
       'common.cancel': '取消',
       'common.libDelete': '删除',
       'common.catAll': '全部分类（{n} 个脚本）',
+      'common.tagAll': '全部卡（{n}）',
+      'common.tagEmpty': '没有卡装了这个脚本。',
       'common.catEmpty': '这个分类下没有脚本。',
       'common.pickAll': '全选',
       'common.pickNone': '清空',
@@ -318,6 +320,8 @@ window.__ModuleLoader__.load({
       'common.cancel': 'Cancel',
       'common.libDelete': 'Delete',
       'common.catAll': 'All categories ({n} scripts)',
+      'common.tagAll': 'All cards ({n})',
+      'common.tagEmpty': 'No card has this script yet.',
       'common.catEmpty': 'No scripts in this category.',
       'common.pickAll': 'Select all',
       'common.pickNone': 'Clear',
@@ -614,6 +618,10 @@ window.__ModuleLoader__.load({
       '.dwb-title{font-size:14px;font-weight:700}',
       '.dwb-sub{font-size:11px;color:var(--dsw-alias-label-secondary);word-break:break-all}',
       '.dwb-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      // 分类/tag 芯片的选中态。用可点按钮做筛选，选中时给底色加边框，
+      // 与"只读徽章"区分开（徽章是 span，不响应点击）。
+      '.dwb-chip.on{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-3);font-weight:600}',
+      'button.dwb-chip{cursor:pointer}',
       '.dwb-chip.ok{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}',
       '.dwb-chip.warn{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary)}',
       '.dwb-chip.bad{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
@@ -1779,6 +1787,12 @@ const [importOpen, setImportOpen] = useState(false)
        * 选中集用文件名为键（卡可能改显示名，文件名才是稳定的）。 */
       const [commonCat, setCommonCat] = useState('')
       const [commonPicked, setCommonPicked] = useState(() => new Set())
+      /* commonTagFilter —— 卡列表按「装了哪个通用脚本」筛。
+       *
+       * 用脚本当筛选标签，而不是给卡另设一套分类：脚本本身就是用户导入的、
+       * 有明确含义的东西，再引入一层分类只会多一处要维护的映射。
+       * '' 表示不筛（全部）。 */
+      const [commonTag, setCommonTag] = useState('')
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -2896,15 +2910,29 @@ const [importOpen, setImportOpen] = useState(false)
        * 卡的多选用文件名作键 —— 卡可能改显示名，文件名才是稳定的。
        * 分类来自脚本自带的 dsh_meta.category，没有就归「未分类」。
        */
+      /* dsh-common-ui3 / commonTagFilter —— 通用脚本页签。
+       *
+       * 两块：库里有什么脚本（按分类 chip 筛）、每张卡装了哪些脚本。
+       *
+       * 卡这边用【脚本名】当筛选标签 —— 用户导入的脚本本身就是分类单位，
+       * 再给卡另设一套分类只会多一层要同步的映射。
+       *
+       * 多选用文件名作键（卡可改显示名，文件名才稳定）；
+       * 装卸是"对卡"的操作，所以选中粒度是卡，不是脚本。
+       */
       const commonView = (() => {
         const libAll = (common && common.lib) || []
         const allCards = (common && common.cards) || []
         const cards = allCards.filter((c) => c.mvu)
         const others = allCards.filter((c) => !c.mvu)
 
-        /* 分类清单：从库项里收，保持稳定顺序。 */
         const cats = [...new Set(libAll.map((L) => L.category || '未分类'))]
         const lib = commonCat ? libAll.filter((L) => (L.category || '未分类') === commonCat) : libAll
+
+        /* 卡筛选：commonTag 是脚本名。判定用后端给的 installed 数组。
+           differs 也算装了 —— 卡上那份与库里不一致仍是装着的。 */
+        const cardHas = (c, name) => (c.installed || []).some((i) => i.name === name && i.state !== 'absent')
+        const shown = commonTag ? cards.filter((c) => cardHas(c, commonTag)) : cards
 
         const badge = (st) => {
           if (st === 'ok') return h('span', { className: 'dwb-chip ok' }, t('common.installed'))
@@ -2912,19 +2940,20 @@ const [importOpen, setImportOpen] = useState(false)
           return h('span', { className: 'dwb-chip' }, t('common.absent'))
         }
 
-        const toggle = (file) => {
-          setCommonPicked((prev) => {
-            const next = new Set(prev)
-            if (next.has(file)) next.delete(file); else next.add(file)
-            return next
-          })
-        }
-        const pickAll = (on) => setCommonPicked(on ? new Set(cards.map((c) => c.file)) : new Set())
+        const toggle = (file) => setCommonPicked((prev) => {
+          const next = new Set(prev)
+          if (next.has(file)) next.delete(file); else next.add(file)
+          return next
+        })
+        const pickAll = (on) => setCommonPicked(on ? new Set(shown.map((c) => c.file)) : new Set())
         const pickedList = [...commonPicked]
+        const catChip = (on, label, onClick, key) =>
+          h('button', { type: 'button', key, className: 'dwb-chip' + (on ? ' on' : ''), onClick }, label)
 
         return h(
           'div',
           { className: 'dwb-col', style: { gap: 10 } },
+
           /* ── 库 ── */
           h(
             'div',
@@ -2933,21 +2962,18 @@ const [importOpen, setImportOpen] = useState(false)
               'div',
               { className: 'dwb-row' },
               h('span', { className: 'dwb-title dwb-grow' }, t('common.libTitle')),
-              libAll.length > 1
-                ? h('select', {
-                    className: 'dwb-select',
-                    value: commonCat,
-                    onChange: (ev) => setCommonCat(ev.target.value),
-                  },
-                    h('option', { value: '' }, t('common.catAll').replace('{n}', libAll.length)),
-                    cats.map((cc) => h('option', { value: cc, key: cc },
-                      cc + ' (' + libAll.filter((L) => (L.category || '未分类') === cc).length + ')')),
-                  )
-                : null,
               h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => setCommonOpen(!commonOpen) }, t('common.importScript')),
               h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void loadCommon(), disabled: commonBusy }, t('common.refresh')),
             ),
             h('div', { className: 'dwb-hint' }, t('common.libHint')),
+            /* 分类芯片：始终显示（原来只在 >1 个脚本时才出，一个脚本时看不见）。
+               只有一个脚本时它仍有用 —— 它标出这个脚本属于哪一类。 */
+            libAll.length
+              ? h('div', { className: 'dwb-row', style: { gap: 4, flexWrap: 'wrap' } },
+                  catChip(!commonCat, t('common.catAll').replace('{n}', libAll.length), () => setCommonCat(''), '__all'),
+                  cats.map((cc) => catChip(commonCat === cc, cc + ' (' + libAll.filter((L) => (L.category || '未分类') === cc).length + ')', () => setCommonCat(commonCat === cc ? '' : cc), cc)),
+                )
+              : null,
             commonOpen
               ? h(
                   'div',
@@ -2991,7 +3017,7 @@ const [importOpen, setImportOpen] = useState(false)
                   'div',
                   { className: 'dwb-col', style: { gap: 6 } },
                   lib.map((L) => {
-                    const installedOn = cards.filter((c) => (c.installed || []).some((i) => i.name === L.name && i.state !== 'absent')).length
+                    const on = cards.filter((c) => cardHas(c, L.name)).length
                     return h(
                       'div',
                       { className: 'dwb-card flat', key: L.file },
@@ -3002,7 +3028,7 @@ const [importOpen, setImportOpen] = useState(false)
                         h('span', { className: 'dwb-chip' }, L.category || '未分类'),
                         L.broken ? h('span', { className: 'dwb-chip bad' }, t('common.broken')) : null,
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
-                        h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', installedOn) + '/' + cards.length),
+                        h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
@@ -3026,12 +3052,19 @@ const [importOpen, setImportOpen] = useState(false)
               h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void doCommon('installCommon', { cards: pickedList }, t('common.installPicked')), disabled: commonBusy || !pickedList.length }, t('common.installPicked') + (pickedList.length ? ' (' + pickedList.length + ')' : '')),
               h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void doCommon('removeCommon', { cards: pickedList }, t('common.removePicked')), disabled: commonBusy || !pickedList.length }, t('common.removePicked')),
             ),
+            /* 脚本 tag：点一下只看装了它的卡。脚本名就是标签，不再另设分类。 */
+            libAll.length
+              ? h('div', { className: 'dwb-row', style: { gap: 4, flexWrap: 'wrap' } },
+                  catChip(!commonTag, t('common.tagAll').replace('{n}', cards.length), () => setCommonTag(''), '__tagall'),
+                  libAll.map((L) => catChip(commonTag === L.name, L.name + ' (' + cards.filter((c) => cardHas(c, L.name)).length + ')', () => setCommonTag(commonTag === L.name ? '' : L.name), 'tag_' + L.file)),
+                )
+              : null,
             h('div', { className: 'dwb-hint' }, t('common.cardsHint')),
-            cards.length
+            shown.length
               ? h(
                   'div',
                   { className: 'dwb-col', style: { gap: 6 } },
-                  cards.map((c) => h(
+                  shown.map((c) => h(
                     'div',
                     { className: 'dwb-card flat', key: c.file },
                     h(
@@ -3061,7 +3094,7 @@ const [importOpen, setImportOpen] = useState(false)
                     ),
                   )),
                 )
-              : h('div', { className: 'dwb-empty' }, t('common.cardsEmpty')),
+              : h('div', { className: 'dwb-empty' }, commonTag ? t('common.tagEmpty') : t('common.cardsEmpty')),
           ),
 
           /* ── 原版卡：只列出，不给装卸入口 ── */
@@ -3071,8 +3104,6 @@ const [importOpen, setImportOpen] = useState(false)
                 { className: 'dwb-card' },
                 h('div', { className: 'dwb-title' }, t('common.originalsTitle') + others.length + ')'),
                 h('div', { className: 'dwb-hint' }, t('common.originalsHint')),
-                /* 每个卡名各包一个 chip —— 原来是 join(' · ') 拼成一行，
-                   长卡名会挤成一片、看不出边界。 */
                 h(
                   'div',
                   { className: 'dwb-row', style: { gap: 4, flexWrap: 'wrap' } },

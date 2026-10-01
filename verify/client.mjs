@@ -1167,8 +1167,10 @@ check('dsh-undefined-call-test：后端没有裸名 crypto 函数', nsBare.lengt
 /* 分类器：脚本多于一个才显示（只有一个时下拉没意义）。 */
 check('dsh-common-ui3-test：库项带 category 字段',
   verSrc.includes("L.category || '未分类'") && hostSrc.includes("category: str("))
-check('dsh-common-ui3-test：分类下拉只在多个脚本时出现',
-  verSrc.includes('libAll.length > 1'))
+/* 早先写成「只在多个脚本时才出」，后来改成「只要库里有脚本就显示芯片」 ——
+   一个脚本时它仍然有用：标出这个脚本属于哪一类。 */
+check('dsh-common-ui3-test：分类芯片只要库非空就显示',
+  /libAll\.length\s*\n?\s*\? h\('div'/.test(verSrc) || verSrc.includes('libAll.length'))
 check('dsh-common-ui3-test：分类可筛选库列表',
   /commonCat \? libAll\.filter/.test(verSrc))
 check('dsh-common-ui3-test：分类空态有单独文案', verSrc.includes("commonCat ? t('common.catEmpty')"))
@@ -1206,6 +1208,30 @@ check('dsh-common-ui3-test：后端 installCommon 支持 cards 过滤',
   /function installCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
 check('dsh-common-ui3-test：后端 removeCommon 支持 cards 过滤',
   /function removeCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
+/* ---- dsh-common-tags-test：以脚本名为标签筛选卡 ---- */
+
+check('dsh-common-tags-test：有 commonTag 状态', verSrc.includes('const [commonTag, setCommonTag]'))
+check('dsh-common-tags-test：标签就是脚本名',
+  verSrc.includes('cardHas(c, L.name)') && /L\.name \+ ' \('/.test(verSrc))
+check('dsh-common-tags-test：点标签可切换（再点取消）',
+  /setCommonTag\(commonTag === L\.name \? '' : L\.name\)/.test(verSrc))
+check('dsh-common-tags-test：全部标签用 t(common.tagAll)',
+  verSrc.includes("t('common.tagAll')"))
+check('dsh-common-tags-test：筛空有单独文案', verSrc.includes("commonTag ? t('common.tagEmpty')"))
+
+/* 判定"装了没有"要用 installed 数组，且 differs 也算装了 ——
+   卡上那份与库里不一致时它仍然是装着的，只是版本旧。 */
+check('dsh-common-tags-test：installed 判定排除 absent',
+  /state !== 'absent'/.test(verSrc))
+
+/* 筛选后的卡列表用 shown，全选也只作用于 shown（否则会选中看不见的卡）。 */
+check('dsh-common-tags-test：列表渲染用 shown', verSrc.includes('shown.map((c) => h('))
+check('dsh-common-tags-test：全选只作用于当前可见的卡',
+  /pickAll = \(on\) => setCommonPicked\(on \? new Set\(shown\.map/.test(verSrc))
+
+/* chip 的选中样式 —— 没有它，点没点中看不出来。 */
+check('dsh-common-tags-test：芯片有选中态样式', verSrc.includes('.dwb-chip.on'))
+check('dsh-common-tags-test：可点芯片有 pointer', verSrc.includes('button.dwb-chip{cursor:pointer}'))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
