@@ -961,7 +961,7 @@ check('dsh-verify-peer：两种标记可同时出现（表驱动）', /\['preset
    渲染断言能证明"出了标记"，但证明不了"MVU 版是靠 pairKey 出的" */
 check('dsh-verify-peer：peerRecordOf 里查了 pairKey（MVU 版靠这条取得原版信息）', peerSrc.includes('card.pairKey') && peerSrc.includes('dsh-peer-preset-pair'))
 check('dsh-verify-peer：左侧筛选按筛选条件算计数', peerSrc.includes('dsh-wb-filter-cards') && peerSrc.includes('filterCounts'))
-check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表）', /filtersActive \|\| groupOf !== 'card'/.test(peerSrc))
+check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表）', /!filtersActive \? true/.test(peerSrc))
 check('dsh-verify-peer：对端探测失败也静默降级（catch 里建空 Map）', peerSrc.includes('peerPresetCache = new Map()'))
 const verSrc = fs.readFileSync(SRC, 'utf8')
 
@@ -980,12 +980,17 @@ check('dsh-filter-test：词典里有 filtered 文案（中英）',
   verSrc.includes("'cards.filtered'") && (verSrc.match(/'cards\.filtered'/g) || []).length >= 2,
   String((verSrc.match(/'cards\.filtered'/g) || []).length))
 check('dsh-filter-test：空列表按「筛选后为空」与「目录没卡」分流',
-  /filtersActive && cards\.length \? t\('cards\.filtered'\) : t\('cards\.empty'\)/.test(verSrc))
+  /filtersActive && cards\.length[\s\S]{0,140}: \(isOther \? t\('bucket\.empty'\)/.test(verSrc))
 check('dsh-filter-test：手建分类仍用自己的文案', verSrc.includes("t('bucket.empty')"))
 
 /* 左侧筛选的判据：只在有筛选时才过滤，且只过滤人物卡那组。 */
 check('dsh-filter-test：筛选只在有值时生效', verSrc.includes('filtersActive'))
-check('dsh-filter-test：只过滤人物卡分组', verSrc.includes("groupOf !== 'card'"))
+/* 早先钉的是"只过滤人物卡那组"，后来改成两组一致（其它错题也跟随筛选）。
+   现在要钉的是相反的：groupOf 不再参与筛选判断。 */
+check('dsh-filter-test：两组都跟随筛选（groupOf 不参与判断）',
+  !/groupOf !== 'card'/.test(verSrc) && /filtersActive \? true : \(filterCounts/.test(verSrc))
+check('dsh-filter-test：空态先判筛选、再按组给文案',
+  /filtersActive && cards\.length[\s\S]{0,120}: \(isOther \? t\('bucket\.empty'\)/.test(verSrc))
 check('dsh-filter-test：按状态与范围两个维度计数', verSrc.includes('filterCounts') && verSrc.includes('filterStatus') && verSrc.includes('filterScope'))
 
 /* 专属预设与推荐预设要能分别识别。 */
@@ -1232,6 +1237,27 @@ check('dsh-common-tags-test：全选只作用于当前可见的卡',
 /* chip 的选中样式 —— 没有它，点没点中看不出来。 */
 check('dsh-common-tags-test：芯片有选中态样式', verSrc.includes('.dwb-chip.on'))
 check('dsh-common-tags-test：可点芯片有 pointer', verSrc.includes('button.dwb-chip{cursor:pointer}'))
+/* ---- dsh-filter-both-test：两个错题页签的筛选行为一致 ---- */
+
+/* 人物卡那组：筛掉没有命中条目的卡。 */
+check('dsh-filter-both-test：筛选按每卡命中数过滤',
+  /filterCounts\.get\(c\.key\) \|\| 0\) > 0/.test(verSrc))
+
+/* 其它错题那组：现在同样过滤 —— 这是本次改动，钉住它免回退。 */
+check('dsh-filter-both-test：其它错题组也过滤（不再无条件放行）',
+  !/groupOf !== 'card'/.test(verSrc))
+
+/* filterCounts 本身与组无关 —— 它只按 cardKey 统计，两组共用。 */
+check('dsh-filter-both-test：计数逻辑与分组无关',
+  /for \(const e of entries\)[\s\S]{0,220}m\.set\(e\.cardKey/.test(verSrc))
+
+/* 筛选为空时不过滤（否则一进页面像库坏了）。 */
+check('dsh-filter-both-test：无筛选时不过滤',
+  verSrc.includes('!filtersActive ? true'))
+
+/* 新增/改名/删除分类的按钮不经过列表，所以筛空不影响建分类。 */
+check('dsh-filter-both-test：分类管理按钮独立于列表',
+  verSrc.includes("t('btn.addBucket')") || verSrc.includes('addBucket'))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1

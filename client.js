@@ -1751,8 +1751,9 @@ const [importOpen, setImportOpen] = useState(false)
        *
        * 两条边界：
        *   · 筛选为空时不过滤 —— 否则一进页面就是空列表，像是库读坏了；
-       *   · 只过滤「人物卡」那组 —— 「其它错题」是手建分类（卡片更新器 / 通用等），
-       *     本身就是可能为空的分类位，被筛掉就没法往里记东西了。
+       * 两组都筛。原先只筛人物卡那组，理由是「其它错题是手建分类、
+       * 被筛空就没法往里记东西」—— 但新增/改名/删除分类的按钮在筛选栏上方、
+       * 不经过这个列表，列表空了照样能建，所以两组统一行为更好理解。
        */
       const filterCounts = useMemo(() => {
         const m = new Map()
@@ -1766,7 +1767,7 @@ const [importOpen, setImportOpen] = useState(false)
       const filtersActive = Boolean(filterStatus || filterScope)
       const groupCards = cards
         .filter((c) => (c.group || 'card') === groupOf)
-        .filter((c) => (!filtersActive || groupOf !== 'card' ? true : (filterCounts.get(c.key) || 0) > 0))
+        .filter((c) => (!filtersActive ? true : (filterCounts.get(c.key) || 0) > 0))
       const isOther = groupOf === 'other'
       const currentCard = groupCards.find((c) => c.key === selectedKey) || null
 
@@ -2680,9 +2681,9 @@ const [importOpen, setImportOpen] = useState(false)
               //   手建分类为空 / 筛选后为空 / 卡片目录真的没卡。
               // 第二种是我加了左侧筛选之后才有的，文案不对会看起来像坏了。
               : h('div', { className: 'dwb-empty' },
-                  isOther
-                    ? t('bucket.empty')
-                    : (filtersActive && cards.length ? t('cards.filtered') : t('cards.empty')),
+                    filtersActive && cards.length
+                      ? t('cards.filtered')
+                      : (isOther ? t('bucket.empty') : t('cards.empty')),
                 ),
           ),
           h(
