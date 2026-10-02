@@ -40,6 +40,7 @@ window.__ModuleLoader__.load({
       'common.libDelete': '删除',
       'common.catAll': '全部分类（{n} 个脚本）',
       'common.tagAll': '全部卡（{n}）',
+      'common.kindHand': '自带 MVU',
       'common.tagEmpty': '没有卡装了这个脚本。',
       'common.catEmpty': '这个分类下没有脚本。',
       'common.pickAll': '全选',
@@ -60,10 +61,10 @@ window.__ModuleLoader__.load({
       'common.broken': '文件读取失败',
       'common.onCards': '已装 {n} 张',
       'common.recommend': '建议：',
-      'common.cardsTitle': 'MVU 卡安装状态（',
-      'common.cardsHint': '按既定纪律只装 MVU 版，原版卡保持干净的参照状态、不动。徽章：已装=库里同版；版本不同=卡上那份与库里不一致（库里更新过脚本时会出现）；未装=这张卡还没有。',
+      'common.cardsTitle': '可装脚本的卡（',
+      'common.cardsHint': '含 MVU 版、自带 MVU 的卡（如米吧），以及已经装过脚本的卡。只作参照的原版卡不在此列、也不提供装卸入口。徽章：已装=库里同版；版本不同=卡上那份与库里不一致（库里更新过脚本时会出现）；未装=这张卡还没有。',
       'common.scripts': '{n} 个脚本',
-      'common.cardsEmpty': '没找到 MVU 卡。',
+      'common.cardsEmpty': '没找到可装脚本的卡。',
       'common.installed': '已装',
       'common.differs': '版本不同',
       'common.absent': '未装',
@@ -71,7 +72,7 @@ window.__ModuleLoader__.load({
       'common.removeAll': '全部卸下',
       'common.installOne': '装',
       'common.removeOne': '卸',
-      'common.originalsTitle': '原版卡（不动，仅列出）（',
+      'common.originalsTitle': '仅作参照、不给装卸入口（',
       'common.originalsHint': '原版卡是可对照的参照物，这里只列出、不提供装卸入口。要试脚本请改 MVU 版。',
       'common.done': '完成，处理了 {n} 张卡。',
       'common.fail': '失败 —— 看运行日志里的具体原因。',
@@ -321,6 +322,7 @@ window.__ModuleLoader__.load({
       'common.libDelete': 'Delete',
       'common.catAll': 'All categories ({n} scripts)',
       'common.tagAll': 'All cards ({n})',
+      'common.kindHand': 'own MVU',
       'common.tagEmpty': 'No card has this script yet.',
       'common.catEmpty': 'No scripts in this category.',
       'common.pickAll': 'Select all',
@@ -341,10 +343,10 @@ window.__ModuleLoader__.load({
       'common.broken': 'unreadable',
       'common.onCards': 'on {n} cards',
       'common.recommend': 'Recommended: ',
-      'common.cardsTitle': 'MVU card status (',
-      'common.cardsHint': 'Per the standing rule, only MVU builds get them; the originals stay clean as reference. Badges: installed = same build as the library; differs = the copy on the card is not the one in the library; absent = not present.',
+      'common.cardsTitle': 'Cards that can take scripts (',
+      'common.cardsHint': 'MVU builds, cards that carry their own MVU (like Miba), and any card that already has one of these scripts. Reference-only originals are excluded and get no install buttons. Badges: installed = same build as the library; differs = the copy on the card is not the one in the library; absent = not present.',
       'common.scripts': '{n} scripts',
-      'common.cardsEmpty': 'No MVU cards found.',
+      'common.cardsEmpty': 'No cards to install on.',
       'common.installed': 'installed',
       'common.differs': 'differs',
       'common.absent': 'absent',
@@ -352,7 +354,7 @@ window.__ModuleLoader__.load({
       'common.removeAll': 'Remove from all',
       'common.installOne': 'Install',
       'common.removeOne': 'Remove',
-      'common.originalsTitle': 'Originals (listed only, untouched) (',
+      'common.originalsTitle': 'Reference only (no install buttons) (',
       'common.originalsHint': 'Originals are the reference copies; they are listed here but have no install buttons. Try scripts on the MVU build instead.',
       'common.done': 'Done - handled {n} cards.',
       'common.fail': 'failed - see the run log for the reason.',
@@ -2924,8 +2926,8 @@ const [importOpen, setImportOpen] = useState(false)
       const commonView = (() => {
         const libAll = (common && common.lib) || []
         const allCards = (common && common.cards) || []
-        const cards = allCards.filter((c) => c.mvu)
-        const others = allCards.filter((c) => !c.mvu)
+        const cards = allCards.filter((c) => c.installable)
+        const others = allCards.filter((c) => !c.installable)
 
         const cats = [...new Set(libAll.map((L) => L.category || '未分类'))]
         const lib = commonCat ? libAll.filter((L) => (L.category || '未分类') === commonCat) : libAll
@@ -3078,6 +3080,7 @@ const [importOpen, setImportOpen] = useState(false)
                         onChange: () => toggle(c.file),
                       }),
                       h('span', { className: 'dwb-grow' }, c.label),
+                      c.markerKind ? h('span', { className: 'dwb-chip' }, c.markerKind === 'hand-tuned-mvu' ? t('common.kindHand') : c.markerKind) : null,
                       h('span', { className: 'dwb-sub' }, t('common.scripts').replace('{n}', c.scriptCount)),
                     ),
                     h(

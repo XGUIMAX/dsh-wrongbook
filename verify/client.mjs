@@ -1053,8 +1053,10 @@ check('dsh-common-tab-test：三个后端 action 都被前端调用',
   commonActions.every((a) => actions.includes(a)), commonActions.filter((a) => !actions.includes(a)).join(','))
 
 /* 原版卡不给装卸入口 —— 页签里只应存在 MVU 卡的行。 */
-check('dsh-common-tab-test：原版卡只列出、没有装按钮',
-  verSrc.includes('c.mvu') && verSrc.includes("filter((c) => !c.mvu)"))
+/* 判定从 c.mvu 换成 c.installable（含 MVU版 / 自带MVU / 已装过脚本三类）。
+   "仅参照的卡不给装按钮"这条语义没变，只是字段名变了。 */
+check('dsh-common-tab-test：仅参照的卡只列出、没有装按钮',
+  !verSrc.includes('c.mvu') && verSrc.includes('!c.installable'))
 
 /* 库与卡的数据来自后端，前端不能自己编。 */
 check('dsh-common-tab-test：数据来自 commonScripts 接口而非硬编码',
@@ -1258,6 +1260,52 @@ check('dsh-filter-both-test：无筛选时不过滤',
 /* 新增/改名/删除分类的按钮不经过列表，所以筛空不影响建分类。 */
 check('dsh-filter-both-test：分类管理按钮独立于列表',
   verSrc.includes("t('btn.addBucket')") || verSrc.includes('addBucket'))
+/* ---- dsh-installscope-test：统计范围 + 导入时自动建议 ---- */
+
+/* ① 哪些卡算「该装」：三条任一（MVU版 / 自带MVU / 已装过脚本）。 */
+check('dsh-installscope-test：后端算 installable', hostSrc.includes('const installable = isMvu'))
+check('dsh-installscope-test：文件名是 MVU 版算', /const installable = isMvu \|\|/.test(hostSrc))
+check('dsh-installscope-test：自带 MVU（hand-tuned-mvu）也算', hostSrc.includes("marker.kind === 'hand-tuned-mvu'"))
+check('dsh-installscope-test：已经装了脚本的也算',
+  /hasAny = scripts\.some/.test(hostSrc) && /\|\| hasAny/.test(hostSrc))
+check('dsh-installscope-test：把 installable 与 markerKind 传给前端',
+  hostSrc.includes('installable,') && hostSrc.includes('markerKind:'))
+
+/* ② 前端跟着用 installable，不能还看 mvu。 */
+check('dsh-installscope-test：前端按 installable 筛', verSrc.includes('allCards.filter((c) => c.installable)'))
+check('dsh-installscope-test：前端不再用 c.mvu 判定', !verSrc.includes('c.mvu'))
+
+/* ③ 导入时生成建议。 */
+check('dsh-installscope-test：有 suggestCommonMeta', hostSrc.includes('function suggestCommonMeta'))
+check('dsh-installscope-test：导入时调它写草稿',
+  /function importCommonScript[\s\S]{0,1500}suggestCommonMeta\(name, content\)/.test(hostSrc))
+check('dsh-installscope-test：已带说明的不覆盖（作者说明优先）', /!entry\.dsh_meta\.purpose/.test(hostSrc))
+
+/* ④ 行为验证：复刻分类判断，喂样本。这一段在验判据，不是查字符串在不在。 */
+const guessCategory = (c) => {
+  if (/generateRaw|TavernHelper\.generate|list_worldbook_profiles|upsert_worldbook_profile/.test(c)) return '助手 / 后台'
+  if (/getMvuData|replaceMvuData|insertOrAssignVariables/.test(c)) return '变量 / MVU'
+  if (/getChatMessages|setChatMessages|createChatMessages/.test(c)) return '聊天 / 记录'
+  if (/createElement|innerHTML|StatusPlaceHolder|iframe/.test(c)) return '界面 / 渲染'
+  return '未分类'
+}
+check('dsh-installscope-test：调 generateRaw 的归「助手 / 后台」',
+  guessCategory("await generateRaw({ user_input: 'x' })") === '助手 / 后台')
+check('dsh-installscope-test：读写 MVU 的归「变量 / MVU」', guessCategory('const d = getMvuData()') === '变量 / MVU')
+check('dsh-installscope-test：读聊天记录的归「聊天 / 记录」', guessCategory('getChatMessages(0, -1)') === '聊天 / 记录')
+check('dsh-installscope-test：渲染面板的归「界面 / 渲染」', guessCategory('el.innerHTML = html') === '界面 / 渲染')
+check('dsh-installscope-test：什么都不像的归「未分类」', guessCategory('const x = 1') === '未分类')
+check('dsh-installscope-test：多种能力混用时优先判为助手类',
+  guessCategory('generateRaw(); getMvuData(); innerHTML') === '助手 / 后台')
+
+/* ⑤ 能力标签：purpose 里会点到的那些，都要有对应规则。 */
+for (const label of ['读/写 MVU 变量', '世界书读写', '监听消息事件', '直接调模型', '读写聊天记录', '渲染界面 / 面板']) {
+  check('dsh-installscope-test：能识别「' + label + '」', hostSrc.includes(label))
+}
+
+/* ⑥ 词典：卡行新增的卡型标签中英都要有（之前只加到英文，是测试抓出来的）。 */
+check('dsh-installscope-test：kindHand 中英都在',
+  verSrc.includes("'common.kindHand': '自带 MVU'") && verSrc.includes("'common.kindHand': 'own MVU'"))
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
