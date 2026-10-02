@@ -323,7 +323,7 @@ window.__ModuleLoader__.load({
       'common.jobNoReason': '没找到明显的契合点。',
       'common.jobProfile': '正则 {r} 条 / {rc} 字符 · 脚本 {s} 个 · 世界书 {b} 条',
       'common.handOff': '生成建议',
-      'common.handOffTip': '读取这个脚本和全部卡，由工作台逐张分析每张卡具体哪个功能能被它接管。生成一段文本给你，你确认后再发 —— 不会替你自动发出。',
+      'common.handOffTip': '生成建议：读取这个脚本和全部卡，由工作台逐张分析每张卡具体哪个功能能被它接管。生成一段文本给你，你确认后再发 —— 不会替你自动发出。',
       'common.collapse': '收起',
       'common.expand': '展开',
       'common.jobClear': '清除',
@@ -378,7 +378,7 @@ window.__ModuleLoader__.load({
       'common.jobNoReason': 'No clear fit found.',
       'common.jobProfile': '{r} regexes / {rc} chars - {s} scripts - {b} worldbook entries',
       'common.handOff': 'Get advice',
-      'common.handOffTip': 'Reads the script and every card, then has the workspace analyze what each card would gain from it. Produces a block of text for you to review before sending - it never sends it for you.',
+      'common.handOffTip': 'Get advice: reads the script and every card, then has the workspace analyze what each card would gain from it. Produces a block of text for you to review before sending - it never sends it for you.',
       'common.collapse': 'Collapse',
       'common.expand': 'Expand',
       'common.jobClear': 'Clear',
@@ -786,12 +786,15 @@ window.__ModuleLoader__.load({
       '.dwb-input.narrow{width:64px;min-width:64px}',
       // 目录浏览弹窗：参照卡片更新器的做法，自己列目录、自己选，不赌宿主的选择器。
       /* 侧栏底部入口。尺寸照卡片更新器的 .dcu-entry 抄 —— 它那套是量过宿主行高的，
+         类名刻意避开 .dwb-entry：那个名字早被"错题条目"占用，且那边是
+         flex-direction:column 的竖排卡片 —— 合并过来会让图标和文字竖着排。
+         这里显式写 flex-direction:row，多一道保险。
          自己拟一套（哪怕只差几个 px）在侧栏里就是对不齐。 */
-      '.dwb-entry{display:flex;align-items:center;gap:8px;width:calc(100% + 4px);height:42px;box-sizing:border-box;margin:4px -2px;padding:0 10px 0 8px;border:none;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
-      '.dwb-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}',
-      '.dwb-entry:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
-      '.dwb-entry[data-wide="false"]{width:36px;height:36px;margin:0;padding:0;gap:0;justify-content:center;border-radius:50%;flex:0 0 auto}',
-      '.dwb-entry-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.dwb-nav-entry{display:flex;flex-direction:row;align-items:center;gap:8px;width:calc(100% + 4px);height:42px;box-sizing:border-box;margin:4px -2px;padding:0 10px 0 8px;border:none;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
+      '.dwb-nav-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.dwb-nav-entry:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
+      '.dwb-nav-entry[data-wide="false"]{width:36px;height:36px;margin:0;padding:0;gap:0;justify-content:center;border-radius:50%;flex:0 0 auto}',
+      '.dwb-nav-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.dwb-sheet-wide{width:min(1100px,100%);max-height:min(860px,90vh)}',
 
       '.dwb-overlay{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.42);padding:24px}',
@@ -3921,7 +3924,7 @@ const [importOpen, setImportOpen] = useState(false)
         null,
         h('button', {
           type: 'button',
-          className: 'dwb-entry',
+          className: 'dwb-nav-entry',
           'data-wide': isWide ? 'true' : 'false',
           'aria-label': label,
           'aria-haspopup': 'dialog',
@@ -3930,7 +3933,7 @@ const [importOpen, setImportOpen] = useState(false)
           onClick: () => setOpen(true),
         },
           h(WbGlyph, { size: isWide ? 16 : 18 }),
-          isWide ? h('span', { className: 'dwb-entry-label' }, label) : null,
+          isWide ? h('span', { className: 'dwb-nav-label' }, label) : null,
         ),
         open
           ? h('div', {

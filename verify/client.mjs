@@ -1499,16 +1499,26 @@ if (sideReg && typeof sideReg.component === "function") {
 /* 面板关着时它独自渲染，样式必须内联，否则掉成浏览器默认按钮。 */
 /* 改成 CSS 类了 —— 内联那套在侧栏里对不齐（卡片更新器的行高是量过的）。 */
 check('dsh-sidefoot-render：用 CSS 类 .dwb-entry',
-  verSrc.includes("className: 'dwb-entry'"))
+  verSrc.includes("className: 'dwb-nav-entry'"))
 check('dsh-sidefoot-render：类定义在样式表里',
-  verSrc.includes("'.dwb-entry{"))
+  verSrc.includes("'.dwb-nav-entry{"))
 check('dsh-sidefoot-render：行高照卡片更新器（42px）',
-  /'\.dwb-entry\{[^']*height:42px/.test(verSrc))
+  /'\.dwb-nav-entry\{[^']*height:42px/.test(verSrc))
 check('dsh-sidefoot-render：宽度补偿与它一致（calc(100% + 4px)）',
-  /'\.dwb-entry\{[^']*width:calc\(100% \+ 4px\)/.test(verSrc))
-check('dsh-sidefoot-render：有 hover 态', verSrc.includes('.dwb-entry:hover'))
+  /'\.dwb-nav-entry\{[^']*width:calc\(100% \+ 4px\)/.test(verSrc))
+check('dsh-sidefoot-render：有 hover 态', verSrc.includes('.dwb-nav-entry:hover'))
+/* 显式横排 —— 错题条目那边也叫过 dwb-entry，是 flex-direction:column，
+   合并过来会把图标和文字竖着排。 */
+check('dsh-sidefoot-render：显式声明横排',
+  /\.dwb-nav-entry\{[^']*flex-direction:row/.test(verSrc))
+check('dsh-sidefoot-render：类名不与错题条目冲突',
+  verSrc.includes("'.dwb-nav-entry{") &&
+  /* 错题条目那边仍保留自己的竖排规则（这里没被改名波及）。 */
+  /'\.dwb-entry\{[^']*flex-direction:column/.test(verSrc) &&
+  /* 侧栏这套显式横排。 */
+  /\.dwb-nav-entry\{[^']*flex-direction:row/.test(verSrc))
 check('dsh-sidefoot-render：窄模式有独立尺寸',
-  verSrc.includes('.dwb-entry[data-wide='))
+  verSrc.includes('.dwb-nav-entry[data-wide='))
 /* overlay 复用面板已有的 .dwb-overlay / .dwb-sheet。 */
 check('dsh-sidefoot-render：overlay 走类名', verSrc.includes("className: 'dwb-overlay'"))
 check('dsh-sidefoot-render：组件里调了 useStyles（面板关着时样式得自己挂）',
