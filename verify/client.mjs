@@ -1497,10 +1497,22 @@ if (sideReg && typeof sideReg.component === "function") {
 }
 
 /* 面板关着时它独自渲染，样式必须内联，否则掉成浏览器默认按钮。 */
-check('dsh-sidefoot-render：按钮样式内联写死',
-  /function SideEntry[\s\S]{0,2800}style: btn/.test(verSrc))
-check('dsh-sidefoot-render：overlay 内联定位',
-  /function SideEntry[\s\S]{0,3400}position: 'fixed'/.test(verSrc))
+/* 改成 CSS 类了 —— 内联那套在侧栏里对不齐（卡片更新器的行高是量过的）。 */
+check('dsh-sidefoot-render：用 CSS 类 .dwb-entry',
+  verSrc.includes("className: 'dwb-entry'"))
+check('dsh-sidefoot-render：类定义在样式表里',
+  verSrc.includes("'.dwb-entry{"))
+check('dsh-sidefoot-render：行高照卡片更新器（42px）',
+  /'\.dwb-entry\{[^']*height:42px/.test(verSrc))
+check('dsh-sidefoot-render：宽度补偿与它一致（calc(100% + 4px)）',
+  /'\.dwb-entry\{[^']*width:calc\(100% \+ 4px\)/.test(verSrc))
+check('dsh-sidefoot-render：有 hover 态', verSrc.includes('.dwb-entry:hover'))
+check('dsh-sidefoot-render：窄模式有独立尺寸',
+  verSrc.includes('.dwb-entry[data-wide='))
+/* overlay 复用面板已有的 .dwb-overlay / .dwb-sheet。 */
+check('dsh-sidefoot-render：overlay 走类名', verSrc.includes("className: 'dwb-overlay'"))
+check('dsh-sidefoot-render：组件里调了 useStyles（面板关着时样式得自己挂）',
+  /function SideEntry[\s\S]{0,600}useStyles\(\)/.test(verSrc))
 check('dsh-sidefoot-render：初始不开，点了才开',
   /const \[open, setOpen\] = useState\(false\)/.test(verSrc))
 check('dsh-sidefoot-render：点遮罩可关', verSrc.includes('ev.target === ev.currentTarget'))

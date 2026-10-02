@@ -322,7 +322,8 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': '每条理由都引用了卡里实际存在的东西（正则名、脚本名、世界书条数），可以照着核对。',
       'common.jobNoReason': '没找到明显的契合点。',
       'common.jobProfile': '正则 {r} 条 / {rc} 字符 · 脚本 {s} 个 · 世界书 {b} 条',
-      'common.handOff': '交给工作台生成建议',
+      'common.handOff': '生成建议',
+      'common.handOffTip': '读取这个脚本和全部卡，由工作台逐张分析每张卡具体哪个功能能被它接管。生成一段文本给你，你确认后再发 —— 不会替你自动发出。',
       'common.collapse': '收起',
       'common.expand': '展开',
       'common.jobClear': '清除',
@@ -376,7 +377,8 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': 'Every reason cites something that actually exists in the card (regex names, script names, worldbook count), so you can check it.',
       'common.jobNoReason': 'No clear fit found.',
       'common.jobProfile': '{r} regexes / {rc} chars - {s} scripts - {b} worldbook entries',
-      'common.handOff': 'Get advice from the workspace',
+      'common.handOff': 'Get advice',
+      'common.handOffTip': 'Reads the script and every card, then has the workspace analyze what each card would gain from it. Produces a block of text for you to review before sending - it never sends it for you.',
       'common.collapse': 'Collapse',
       'common.expand': 'Expand',
       'common.jobClear': 'Clear',
@@ -783,6 +785,15 @@ window.__ModuleLoader__.load({
       '.dwb-area.dwb-drag{border-color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-bg-layer-3)}',
       '.dwb-input.narrow{width:64px;min-width:64px}',
       // 目录浏览弹窗：参照卡片更新器的做法，自己列目录、自己选，不赌宿主的选择器。
+      /* 侧栏底部入口。尺寸照卡片更新器的 .dcu-entry 抄 —— 它那套是量过宿主行高的，
+         自己拟一套（哪怕只差几个 px）在侧栏里就是对不齐。 */
+      '.dwb-entry{display:flex;align-items:center;gap:8px;width:calc(100% + 4px);height:42px;box-sizing:border-box;margin:4px -2px;padding:0 10px 0 8px;border:none;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}',
+      '.dwb-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.dwb-entry:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
+      '.dwb-entry[data-wide="false"]{width:36px;height:36px;margin:0;padding:0;gap:0;justify-content:center;border-radius:50%;flex:0 0 auto}',
+      '.dwb-entry-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.dwb-sheet-wide{width:min(1100px,100%);max-height:min(860px,90vh)}',
+
       '.dwb-overlay{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.42);padding:24px}',
       '.dwb-sheet{width:min(560px,100%);max-height:min(620px,88vh);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:14px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 48px rgba(0,0,0,.28)}',
       '.dwb-browse{display:flex;flex-direction:column;gap:2px;max-height:300px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:4px;background:var(--dsw-alias-bg-layer-2)}',
@@ -3236,7 +3247,10 @@ const [importOpen, setImportOpen] = useState(false)
                         h('button', { type: 'button', className: 'dwb-btn tiny primary', onClick: () => void handOff(L, cards), disabled: commonBusy }, t('common.handOff')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
+                      /* 「生成建议」这条路的说明。它不即时出结果（要工作台读卡），
+                         不写清会让人以为按钮坏了。 */
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
+                      h('div', { className: 'dwb-hint' }, t('common.handOffTip')),
                       L.meta && L.meta.recommend ? h('div', { className: 'dwb-sub' }, t('common.recommend') + L.meta.recommend) : null,
                     )
                   }),
@@ -3870,7 +3884,26 @@ const [importOpen, setImportOpen] = useState(false)
      *
      * 组件形态照卡片更新器的 SideEntry：一个按钮，点开一个覆盖层，面板本体塞进去。
      */
+    /** 侧栏入口的图标。线条风格与卡片更新器那个刷新图标一致。 */
+    function WbGlyph({ size = 16 }) {
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
+        h('path', { d: 'M3 3.5h10v9H3z', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        h('path', { d: 'M3 6.5h10', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
+        h('path', { d: 'M6.2 6.5v6', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
+      )
+    }
+
+    /*
+     * 侧栏底部那个入口。
+     *
+     * 样式走 CSS 类（.dwb-entry），尺寸照卡片更新器的 .dcu-entry 抄 ——
+     * 面板关着时这个按钮是插件唯一渲染的东西，而 CSS 由 installStyles 挂，
+     * 所以组件里必须自己调 useStyles()。
+     */
     function SideEntry(props) {
+      useStyles()
       const isWide = !props || props.wide !== false
       const [open, setOpen] = useState(false)
 
@@ -3881,54 +3914,35 @@ const [importOpen, setImportOpen] = useState(false)
         return () => window.removeEventListener('keydown', onKey)
       }, [open])
 
-      const btn = {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        width: isWide ? '100%' : 'auto',
-        padding: isWide ? '6px 10px' : '6px',
-        border: 'none',
-        borderRadius: 8,
-        background: 'transparent',
-        color: 'inherit',
-        font: 'inherit',
-        textAlign: 'left',
-        cursor: 'pointer',
-      }
+      const label = t('nav')
 
       return h(
         Fragment,
         null,
         h('button', {
           type: 'button',
-          style: btn,
-          title: t('nav'),
-          'aria-label': t('nav'),
+          className: 'dwb-entry',
+          'data-wide': isWide ? 'true' : 'false',
+          'aria-label': label,
           'aria-haspopup': 'dialog',
           'aria-expanded': open,
+          title: isWide ? undefined : label,
           onClick: () => setOpen(true),
         },
-          /* 图标用行内 SVG，省得依赖外部样式或图标字体。 */
-          h('svg', { width: isWide ? 16 : 18, height: isWide ? 16 : 18, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5 },
-            h('path', { d: 'M3 3.5h10v9H3z' }),
-            h('path', { d: 'M3 6.5h10' }),
-            h('path', { d: 'M6 6.5v6' }),
-          ),
-          isWide ? h('span', null, t('nav')) : null,
+          h(WbGlyph, { size: isWide ? 16 : 18 }),
+          isWide ? h('span', { className: 'dwb-entry-label' }, label) : null,
         ),
         open
           ? h('div', {
-              style: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 },
+              className: 'dwb-overlay',
               onClick: (ev) => { if (ev.target === ev.currentTarget) setOpen(false) },
             },
-              h('div', {
-                style: { width: 'min(1100px, 100%)', height: 'min(820px, 100%)', display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-layer-1, #1b1b1f)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,.35)' },
-              },
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid rgba(128,128,128,.25)' } },
-                  h('div', { style: { flex: 1, fontWeight: 600 } }, t('nav')),
-                  h('button', { type: 'button', style: { ...btn, width: 'auto' }, onClick: () => setOpen(false) }, t('btn.close')),
+              h('div', { className: 'dwb-sheet dwb-sheet-wide' },
+                h('div', { className: 'dwb-row' },
+                  h('span', { className: 'dwb-title dwb-grow' }, label),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setOpen(false) }, t('btn.close')),
                 ),
-                h('div', { style: { flex: 1, overflow: 'auto', padding: 14 } }, h(Panel, null)),
+                h('div', { className: 'dwb-col' }, h(Panel, null)),
               ),
             )
           : null,
