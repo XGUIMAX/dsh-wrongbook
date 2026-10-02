@@ -322,6 +322,13 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': '每条理由都引用了卡里实际存在的东西（正则名、脚本名、世界书条数），可以照着核对。',
       'common.jobNoReason': '没找到明显的契合点。',
       'common.jobProfile': '正则 {r} 条 / {rc} 字符 · 脚本 {s} 个 · 世界书 {b} 条',
+      'common.handOff': '交给工作台',
+      'common.handoffTitle': '交给工作台的文本（',
+      'common.handoffHint': '这段文字已复制到剪贴板。对话页开着的话也帮你填进输入框了 —— 发出去之前先看一眼。它会让工作台逐张读卡，点名每张卡具体哪个功能能被这个脚本接管。',
+      'common.handoffCopy': '复制',
+      'common.handoffCopied': '已复制到剪贴板 —— 去对话页粘贴发送。',
+      'common.handoffFilled': '已填进对话输入框（也复制了一份）—— 检查一下再发。',
+      'common.handoffManual': '自动复制没成功，请手动选中下面的文本复制。',
     }
 
     const en = {
@@ -366,6 +373,13 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': 'Every reason cites something that actually exists in the card (regex names, script names, worldbook count), so you can check it.',
       'common.jobNoReason': 'No clear fit found.',
       'common.jobProfile': '{r} regexes / {rc} chars - {s} scripts - {b} worldbook entries',
+      'common.handOff': 'Hand to workspace',
+      'common.handoffTitle': 'Text for the workspace (',
+      'common.handoffHint': 'Copied to your clipboard. If the chat page is open it is also filled into the input box - read it before sending. It asks the workspace to read every card and name what each one would gain.',
+      'common.handoffCopy': 'Copy',
+      'common.handoffCopied': 'Copied - paste it in the chat page.',
+      'common.handoffFilled': 'Filled into the chat input (and copied) - check before sending.',
+      'common.handoffManual': 'Auto-copy failed - select the text below and copy it manually.',
       'common.tagEmpty': 'No card has this script yet.',
       'common.catEmpty': 'No scripts in this category.',
       'common.pickAll': 'Select all',
@@ -1846,6 +1860,8 @@ const [importOpen, setImportOpen] = useState(false)
        * 任务在宿主进程里跑，所以关掉面板照样继续；这里只是"看一眼"。
        * 重开面板时靠 localStorage 记住上次看的是哪个脚本，接着轮询。 */
       const [fitJob, setFitJob] = useState(null)
+      /* 交给工作台的那段文本。生成后先给用户看，再让他决定要不要发。 */
+      const [handoff, setHandoff] = useState(null)
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -1901,6 +1917,65 @@ const [importOpen, setImportOpen] = useState(false)
        * 给的是可验证的匹配（脚本用到的能力 × 卡的特征），不是内容层面的推荐 ——
        * "这张卡的界面能交给它"这种话要读懂卡才说得出来，关键词匹配给不出。 */
       /* 启动后台扫描。已经在跑的直接拿到现有任务。 */
+      /*
+       * 生成交给工作台的 prompt。
+       *
+       * 要点：
+       *   · 脚本用绝对路径点名（它在 data/tools 下，不是 resources，没法用 @ 引用）；
+       *   · 卡用 @ 引用（它们在 resources/cards 下，工作台认这个语法）；
+       *   · 明确要求"点名具体功能"，否则模型只会回"界面类"这种笼统的话。
+       */
+      const buildHandoffPrompt = (L, cards) => {
+        const list = (cards || []).map((c) => '@\"cards/' + c.file + '\"').join('\n')
+        return [
+          '请分析这个通用脚本，判断它适合装到哪些卡上。',
+          '',
+          '【脚本】',
+          '路径：data/tools/wrongbook/common-scripts/' + L.file,
+          '（' + Math.round((L.bytes || 0) / 1024) + ' KB。读之前先确认它调用了哪些宿主 API，不必逐字读完。）',
+          '',
+          '【候选卡】（' + (cards || []).length + ' 张：MVU 版与自带 MVU 的卡）',
+          list,
+          '',
+          '【要求】',
+          '1. 逐张读卡 —— 至少看 description、正则名、脚本名、世界书条目标题。',
+          '2. 说清这张卡的【哪个具体功能】能被脚本接管。要点名，比如「龙娘回廊的橱窗」「姬侠传的 SLG 界面」「道渊的悬浮状态栏」；不要写「界面类」「状态栏」这种笼统的话。',
+          '3. 不要写「建议装」这种结论 —— 给可核对的事实，让人自己判断。',
+          '4. 最后按受益程度排序，并说清为什么前几名收益最大。',
+          '5. 如果某张卡明显没什么可受益的，直接说，不用凑理由。',
+        ].join('\n')
+      }
+
+      /* 复制到剪贴板，并尝试填入对话输入框（宿主注入了 #send_textarea 兼容层）。 */
+      const handOff = async (L, cards) => {
+        const text = buildHandoffPrompt(L, cards)
+        setHandoff({ name: L.name, text })
+        let copied = false
+        let filled = false
+        try {
+          await navigator.clipboard.writeText(text)
+          copied = true
+        } catch { /* 无剪贴板权限，下面还有"手动复制"的入口 */ }
+        try {
+          const area = document.getElementById('send_textarea')
+          if (area) {
+            area.value = text
+            area.dispatchEvent(new Event('input', { bubbles: true }))
+            filled = true
+          }
+        } catch { /* 对话页没开，正常 */ }
+        push(filled ? t('common.handoffFilled') : copied ? t('common.handoffCopied') : t('common.handoffManual'), filled ? 'ok' : 'info')
+      }
+
+      /* 手动复制（剪贴板 API 不可用时的兜底）。 */
+      const copyHandoff = async (text) => {
+        try {
+          await navigator.clipboard.writeText(text)
+          push(t('common.handoffCopied'), 'ok')
+        } catch (e) {
+          push(t('common.handoffManual'), 'bad')
+        }
+      }
       const genFit = async (name) => {
         setCommonBusy(true)
         try {
@@ -3149,6 +3224,7 @@ const [importOpen, setImportOpen] = useState(false)
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
                         h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void detectFit(L.name), disabled: commonBusy }, t('common.detectFit')),
                         h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void genFit(L.name), disabled: commonBusy }, t('common.genFit')),
+                        h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void handOff(L, cards), disabled: commonBusy }, t('common.handOff')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
@@ -3158,6 +3234,23 @@ const [importOpen, setImportOpen] = useState(false)
                 )
               : h('div', { className: 'dwb-empty' }, commonCat ? t('common.catEmpty') : t('common.libEmpty')),
           ),
+
+          /* ── 交给工作台的文本 ── */
+          handoff
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('span', { className: 'dwb-title dwb-grow' }, t('common.handoffTitle') + handoff.name + ')'),
+                  h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void copyHandoff(handoff.text) }, t('common.handoffCopy')),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setHandoff(null) }, t('common.fitClose')),
+                ),
+                h('div', { className: 'dwb-hint' }, t('common.handoffHint')),
+                h('textarea', { className: 'dwb-area tall', readOnly: true, value: handoff.text }),
+              )
+            : null,
 
           /* ── 后台任务进度（关掉面板也会继续） ── */
           fitJob
@@ -3770,12 +3863,31 @@ const [importOpen, setImportOpen] = useState(false)
 
       // 目录选择走自己的浏览弹窗（见 BrowseModal），不依赖宿主的目录选择器。
 
-      // 只占设置里的一个页面。左下角侧栏不注册任何东西 —— 入口只有一个。
+      // 两个入口：
+      //   settings.section     —— 设置面板里的一个页面
+      //   settings.plugin.item —— 插件菜单那一层（与「插件市场 / 卡片更新器」同级）
+      // 原先只有前者（注释写着不注册侧栏，是当时的取舍）；
+      // 用户要求参照卡片更新器加一个入口，所以补上。
       ctx.slots.inject('settings.section', () =>
         ctx.slots.register(
           {
             name: 'settings.section',
             id: 'wrongbook',
+            order: 46,
+            label: () => t('nav'),
+            locale: NS,
+          },
+          SettingsSection,
+        ),
+      )
+
+      /* 插件菜单里的一项 —— 与 settings.section 指向同一组件，
+         只是入口位置不同（那个在设置面板内，这个在插件菜单里）。 */
+      ctx.slots.inject('settings.plugin.item', () =>
+        ctx.slots.register(
+          {
+            name: 'settings.plugin.item',
+            key: 'dsh-wrongbook',
             order: 46,
             label: () => t('nav'),
             locale: NS,

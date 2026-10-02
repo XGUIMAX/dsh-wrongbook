@@ -468,13 +468,17 @@ const ctx = {
 plugin.apply(ctx)
 
 check('注册了字典', dicts.length === 1 && dicts[0].ns === 'settings.dsh-wrongbook', dicts[0] && dicts[0].ns)
-check('只注册一个座位', registrations.length === 1, String(registrations.length))
+check('座位数 = 2（settings.section + settings.plugin.item）', registrations.length === 2, String(registrations.length))
 const seat = registrations[0]
 check('座位是 settings.section', seat.options.name === 'settings.section', seat.options.name)
 check('座位 id = wrongbook', seat.options.id === 'wrongbook', seat.options.id)
 check('座位 order = 46', seat.options.order === 46, String(seat.options.order))
 check('座位 label = 错题库', seat.options.label() === '错题库', seat.options.label())
-check('没有侧栏入口', !registrations.some((r) => String(r.options.name).includes('sidebar')))
+/* 原先这条是「没有侧栏入口」。现在补了 settings.plugin.item，断言反过来。 */
+check('有 settings.section 座位',
+  registrations.some((r) => r.options.name === 'settings.section'))
+check('有 settings.plugin.item 座位',
+  registrations.some((r) => r.options.name === 'settings.plugin.item'))
 
 const zhKeys = Object.keys(dicts[0].dict.zh).sort()
 const enKeys = Object.keys(dicts[0].dict.en).sort()
@@ -1393,6 +1397,57 @@ check('dsh-fit-job-test：中英词典键一致（本条曾因守卫写错而漏
     const onlyEn = en.filter((k) => !zh.includes(k))
     return onlyZh.length === 0 && onlyEn.length === 0
   })())
+
+
+/* ---- dsh-handoff-test：交给工作台 ---- */
+
+/* 入口：库项上要有按钮，点了生成文本。 */
+check('dsh-handoff-test：库项有「交给工作台」按钮', verSrc.includes("t('common.handOff')"))
+check('dsh-handoff-test：有 buildHandoffPrompt', verSrc.includes('const buildHandoffPrompt'))
+check('dsh-handoff-test：有 handoff 状态（生成后先给用户看）',
+  verSrc.includes('const [handoff, setHandoff]'))
+
+/* prompt 的关键内容 —— 这几条决定了产出质量。 */
+check('dsh-handoff-test：卡用 @"cards/..." 引用（工作台认这个语法）',
+  /@\\"cards\/.*c\.file/.test(verSrc))
+check('dsh-handoff-test：脚本用路径点名（它在 data/tools 下，不是 resources）',
+  verSrc.includes("data/tools/wrongbook/common-scripts/") && verSrc.includes('L.file'))
+check('dsh-handoff-test：要求点名具体功能，并给了示例',
+  verSrc.includes('龙娘回廊的橱窗') && verSrc.includes('姬侠传的 SLG 界面'))
+check('dsh-handoff-test：明说不要写「建议装」这种结论',
+  verSrc.includes('不要写「建议装」这种结论'))
+check('dsh-handoff-test：要求按受益程度排序',
+  verSrc.includes('按受益程度排序'))
+check('dsh-handoff-test：允许说「没什么可受益的」',
+  verSrc.includes('不用凑理由'))
+check('dsh-handoff-test：提示不必逐字读完脚本（它有一百多万字符）',
+  verSrc.includes('不必逐字读完'))
+
+/* 交付方式：复制 + 尝试填输入框 + 兜底手动复制。 */
+check('dsh-handoff-test：写入剪贴板', verSrc.includes('navigator.clipboard.writeText'))
+check('dsh-handoff-test：尝试填入 #send_textarea（宿主注入的兼容层）',
+  verSrc.includes("getElementById('send_textarea')"))
+check('dsh-handoff-test：填入后派发 input 事件（否则 React 拿不到值）',
+  verSrc.includes("new Event('input', { bubbles: true })"))
+check('dsh-handoff-test：三种结果都给反馈（填了/复制了/要手动）',
+  verSrc.includes("t('common.handoffFilled')") && verSrc.includes("t('common.handoffCopied')") && verSrc.includes("t('common.handoffManual')"))
+
+/* 生成后先展示、可再复制、可收起 —— 不让它直接发出去。 */
+check('dsh-handoff-test：文本在面板里也显示出来（可手动选中）',
+  verSrc.includes("t('common.handoffTitle')"))
+check('dsh-handoff-test：显示区是只读 textarea',
+  /readOnly: true[^}]*value: handoff\.text/.test(verSrc))
+check('dsh-handoff-test：可以再点一次复制', verSrc.includes('copyHandoff(handoff.text)'))
+check('dsh-handoff-test：提示「发出去之前先看一眼」',
+  verSrc.includes('发出去之前先看一眼') || verSrc.includes("t('common.handoffHint')"))
+
+/* 侧栏入口（本轮另一处改动）。 */
+check('dsh-handoff-test：注册了 settings.plugin.item（插件菜单那一层）',
+  verSrc.includes("ctx.slots.inject('settings.plugin.item'"))
+check('dsh-handoff-test：两个座位都指向同一个组件',
+  (verSrc.match(/SettingsSection,\s*\n\s*\),/g) || []).length >= 2)
+check('dsh-handoff-test：注释说清了两个入口的分工',
+  verSrc.includes('settings.plugin.item') && verSrc.includes('设置面板里的一个页面'))
 
 
 let failed = 0
