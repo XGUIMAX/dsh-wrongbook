@@ -300,6 +300,16 @@ window.__ModuleLoader__.load({
       'field.card': '所属分类',
       'label.card': '卡片',
       'label.avatar': '头像',
+      'common.detectFit': '检测适合的卡',
+      'common.fitTitle': '适合装它的卡（',
+      'common.fitClose': '收起',
+      'common.fitCaps': '识别到的能力：',
+      'common.fitNoCaps': '没识别出常见能力调用',
+      'common.fitHint': '按契合度排序，每条给了理由。这是技术层面的匹配（脚本用到的能力 × 卡具备的特征），不代表题材上合不合适 —— 那种判断要读过卡才说得出来。',
+      'common.fitEmpty': '没找到明显受益的卡。',
+      'common.fitHas': '这张卡已有 {n} 个脚本',
+      'common.fitFail': '检测失败。',
+      'backup.dir.custom': '已自定义备份目录',
     }
 
     const en = {
@@ -323,6 +333,15 @@ window.__ModuleLoader__.load({
       'common.catAll': 'All categories ({n} scripts)',
       'common.tagAll': 'All cards ({n})',
       'common.kindHand': 'own MVU',
+      'common.detectFit': 'Find suitable cards',
+      'common.fitTitle': 'Cards that would benefit (',
+      'common.fitClose': 'Hide',
+      'common.fitCaps': 'Capabilities detected: ',
+      'common.fitNoCaps': 'no common capability calls found',
+      'common.fitHint': 'Sorted by fit, each with a reason. This is a technical match (capabilities the script uses x features the card has) - it does not judge whether the theme suits, which needs reading the card.',
+      'common.fitEmpty': 'No obviously benefiting card found.',
+      'common.fitHas': 'this card already has {n} scripts',
+      'common.fitFail': 'Detection failed.',
       'common.tagEmpty': 'No card has this script yet.',
       'common.catEmpty': 'No scripts in this category.',
       'common.pickAll': 'Select all',
@@ -1796,6 +1815,8 @@ const [importOpen, setImportOpen] = useState(false)
        * 有明确含义的东西，再引入一层分类只会多一处要维护的映射。
        * '' 表示不筛（全部）。 */
       const [commonTag, setCommonTag] = useState('')
+      /* 检测结果。每次只针对一个脚本，所以存单个对象。 */
+      const [fit, setFit] = useState(null)
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -1840,6 +1861,22 @@ const [importOpen, setImportOpen] = useState(false)
           if (!r || !r.ok) { push(t('common.deleteFail'), 'bad'); return }
           push(t('common.deleteOk').replace('{name}', name), 'ok')
           await loadCommon()
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
+      /* 检测某个脚本对哪些卡有实际用处。
+       *
+       * 给的是可验证的匹配（脚本用到的能力 × 卡的特征），不是内容层面的推荐 ——
+       * "这张卡的界面能交给它"这种话要读懂卡才说得出来，关键词匹配给不出。 */
+      const detectFit = async (name) => {
+        setCommonBusy(true)
+        try {
+          const r = await apiPost({ action: 'fitCommonScript', name })
+          if (!r || !r.ok) { push(t('common.fitFail'), 'bad'); return }
+          setFit(r)
         } catch (e) {
           push(String((e && e.message) || e), 'bad')
         } finally {
@@ -3032,6 +3069,7 @@ const [importOpen, setImportOpen] = useState(false)
                         L.broken ? h('span', { className: 'dwb-chip bad' }, t('common.broken')) : null,
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
+                        h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void detectFit(L.name), disabled: commonBusy }, t('common.detectFit')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
@@ -3041,6 +3079,43 @@ const [importOpen, setImportOpen] = useState(false)
                 )
               : h('div', { className: 'dwb-empty' }, commonCat ? t('common.catEmpty') : t('common.libEmpty')),
           ),
+
+          /* ── 检测结果 ── */
+          fit
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('span', { className: 'dwb-title dwb-grow' }, t('common.fitTitle') + fit.name + ')'),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setFit(null) }, t('common.fitClose')),
+                ),
+                h('div', { className: 'dwb-sub' }, t('common.fitCaps') + (fit.capabilities.length ? fit.capabilities.join(' · ') : t('common.fitNoCaps'))),
+                h('div', { className: 'dwb-hint' }, t('common.fitHint')),
+                fit.cards.length
+                  ? h(
+                      'div',
+                      { className: 'dwb-col', style: { gap: 6 } },
+                      fit.cards.map((c) => h(
+                        'div',
+                        { className: 'dwb-card flat', key: c.file },
+                        h(
+                          'div',
+                          { className: 'dwb-row' },
+                          h('span', { className: 'dwb-grow' }, c.label),
+                          c.installed ? h('span', { className: 'dwb-chip ok' }, t('common.installed')) : null,
+                          c.installable ? h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void doCommon('installCommon', { cards: [c.file] }, t('common.installOne')), disabled: commonBusy }, t('common.installOne')) : null,
+                        ),
+                        c.reasons.map((why, i) => h('div', { className: 'dwb-sub', key: i }, '· ' + why)),
+                        c.feat && c.feat.scriptCount
+                          ? h('div', { className: 'dwb-sub' }, t('common.fitHas').replace('{n}', c.feat.scriptCount))
+                          : null,
+                      )),
+                    )
+                  : h('div', { className: 'dwb-empty' }, t('common.fitEmpty')),
+              )
+            : null,
 
           /* ── 各 MVU 卡 ── */
           h(

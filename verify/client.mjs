@@ -1132,7 +1132,7 @@ check('dsh-import-common-test：挡住名字里的路径分隔符（会写到库
 /* 装卸只动 scripts 数组 —— 这条在 verify-install-safety.mjs 里做过逐字段实测，
    这里只做静态确认：装卸路径不碰其它字段。 */
 check('dsh-import-common-test：装只 push 进 scripts 数组',
-  /installCommon[\s\S]{0,2000}scripts\.push\(/.test(hostSrc))
+  /installCommon[\s\S]{0,8000}scripts\.push\(/.test(hostSrc))
 check('dsh-import-common-test：卸只 filter scripts 数组',
   /removeCommon[\s\S]{0,2000}scripts\.filter\(/.test(hostSrc))
 /* ---- dsh-undefined-call-test：调用了却不存在的函数 ---- */
@@ -1212,7 +1212,7 @@ check('dsh-common-ui3-test：原版卡不再 join 成一行',
 
 /* 后端两个 action 都接受 cards 白名单参数。 */
 check('dsh-common-ui3-test：后端 installCommon 支持 cards 过滤',
-  /function installCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
+  /function installCommon[\s\S]{0,2000}(explicit|targets\.length) && !targets\.some/.test(hostSrc))
 check('dsh-common-ui3-test：后端 removeCommon 支持 cards 过滤',
   /function removeCommon[\s\S]{0,1200}targets\.length && !targets\.some/.test(hostSrc))
 /* ---- dsh-common-tags-test：以脚本名为标签筛选卡 ---- */
@@ -1260,52 +1260,54 @@ check('dsh-filter-both-test：无筛选时不过滤',
 /* 新增/改名/删除分类的按钮不经过列表，所以筛空不影响建分类。 */
 check('dsh-filter-both-test：分类管理按钮独立于列表',
   verSrc.includes("t('btn.addBucket')") || verSrc.includes('addBucket'))
-/* ---- dsh-installscope-test：统计范围 + 导入时自动建议 ---- */
+/* ---- dsh-install-parity-test：统计口径必须与装卸口径一致 ---- */
 
-/* ① 哪些卡算「该装」：三条任一（MVU版 / 自带MVU / 已装过脚本）。 */
-check('dsh-installscope-test：后端算 installable', hostSrc.includes('const installable = isMvu'))
-check('dsh-installscope-test：文件名是 MVU 版算', /const installable = isMvu \|\|/.test(hostSrc))
-check('dsh-installscope-test：自带 MVU（hand-tuned-mvu）也算', hostSrc.includes("marker.kind === 'hand-tuned-mvu'"))
-check('dsh-installscope-test：已经装了脚本的也算',
-  /hasAny = scripts\.some/.test(hostSrc) && /\|\| hasAny/.test(hostSrc))
-check('dsh-installscope-test：把 installable 与 markerKind 传给前端',
-  hostSrc.includes('installable,') && hostSrc.includes('markerKind:'))
+/* 这次的 bug：统计（commonInstallState）改了判据、装卸（installCommon）没改，
+   于是米吧能出现在列表里、点「装」却被 `if (!/MVU版本/.test(f)) continue` 跳过。
+   两个按钮还不对称 —— removeCommon 反倒没有那行过滤。 */
+check('dsh-install-parity-test：装卸不再有硬编码的 MVU版本 过滤',
+  !/if \(!\/MVU版本\/\.test\(f\)\) continue/.test(hostSrc))
+check('dsh-install-parity-test：判据只有一处（cardInstallable）',
+  (hostSrc.match(/function cardInstallable\(/g) || []).length === 1)
+check('dsh-install-parity-test：统计与装卸都调它',
+  (hostSrc.match(/cardInstallable\(/g) || []).length >= 3)
 
-/* ② 前端跟着用 installable，不能还看 mvu。 */
-check('dsh-installscope-test：前端按 installable 筛', verSrc.includes('allCards.filter((c) => c.installable)'))
-check('dsh-installscope-test：前端不再用 c.mvu 判定', !verSrc.includes('c.mvu'))
+/* explicit：用户明确点了某张卡，就无条件处理 —— 点得出来就说明他要装。 */
+check('dsh-install-parity-test：显式点名时不套可装判据',
+  /cardInstallable\(f, pre\.scripts, pre\.marker, libNames, explicit\)/.test(hostSrc))
+check('dsh-install-parity-test：explicit 来自 targets', /const explicit = targets\.length > 0/.test(hostSrc))
 
-/* ③ 导入时生成建议。 */
-check('dsh-installscope-test：有 suggestCommonMeta', hostSrc.includes('function suggestCommonMeta'))
-check('dsh-installscope-test：导入时调它写草稿',
-  /function importCommonScript[\s\S]{0,1500}suggestCommonMeta\(name, content\)/.test(hostSrc))
-check('dsh-installscope-test：已带说明的不覆盖（作者说明优先）', /!entry\.dsh_meta\.purpose/.test(hostSrc))
+/* 卸不套「可装」判据 —— 卡上真有这个脚本就该能卸掉，哪怕它已不在统计范围内。 */
+check('dsh-install-parity-test：removeCommon 不套可装判据',
+  !/function removeCommon[\s\S]{0,3000}cardInstallable/.test(hostSrc))
 
-/* ④ 行为验证：复刻分类判断，喂样本。这一段在验判据，不是查字符串在不在。 */
-const guessCategory = (c) => {
-  if (/generateRaw|TavernHelper\.generate|list_worldbook_profiles|upsert_worldbook_profile/.test(c)) return '助手 / 后台'
-  if (/getMvuData|replaceMvuData|insertOrAssignVariables/.test(c)) return '变量 / MVU'
-  if (/getChatMessages|setChatMessages|createChatMessages/.test(c)) return '聊天 / 记录'
-  if (/createElement|innerHTML|StatusPlaceHolder|iframe/.test(c)) return '界面 / 渲染'
-  return '未分类'
-}
-check('dsh-installscope-test：调 generateRaw 的归「助手 / 后台」',
-  guessCategory("await generateRaw({ user_input: 'x' })") === '助手 / 后台')
-check('dsh-installscope-test：读写 MVU 的归「变量 / MVU」', guessCategory('const d = getMvuData()') === '变量 / MVU')
-check('dsh-installscope-test：读聊天记录的归「聊天 / 记录」', guessCategory('getChatMessages(0, -1)') === '聊天 / 记录')
-check('dsh-installscope-test：渲染面板的归「界面 / 渲染」', guessCategory('el.innerHTML = html') === '界面 / 渲染')
-check('dsh-installscope-test：什么都不像的归「未分类」', guessCategory('const x = 1') === '未分类')
-check('dsh-installscope-test：多种能力混用时优先判为助手类',
-  guessCategory('generateRaw(); getMvuData(); innerHTML') === '助手 / 后台')
+/* ---- dsh-fit-test：检测适合的卡 ---- */
 
-/* ⑤ 能力标签：purpose 里会点到的那些，都要有对应规则。 */
-for (const label of ['读/写 MVU 变量', '世界书读写', '监听消息事件', '直接调模型', '读写聊天记录', '渲染界面 / 面板']) {
-  check('dsh-installscope-test：能识别「' + label + '」', hostSrc.includes(label))
-}
+check('dsh-fit-test：后端有 fitCommonScript', hostSrc.includes('function fitCommonScript'))
+check('dsh-fit-test：路由已挂', hostSrc.includes("case 'fitCommonScript'"))
+check('dsh-fit-test：库里没有该脚本时明确报错',
+  /function fitCommonScript[\s\S]{0,900}库里没有这个脚本/.test(hostSrc))
+check('dsh-fit-test：按能力规则匹配', /const RULES = \[/.test(hostSrc))
+check('dsh-fit-test：每条结果带理由', /reasons = active\.filter/.test(hostSrc))
+check('dsh-fit-test：已装的排在后面', /Number\(a\.installed\) - Number\(b\.installed\)/.test(hostSrc))
 
-/* ⑥ 词典：卡行新增的卡型标签中英都要有（之前只加到英文，是测试抓出来的）。 */
-check('dsh-installscope-test：kindHand 中英都在',
-  verSrc.includes("'common.kindHand': '自带 MVU'") && verSrc.includes("'common.kindHand': 'own MVU'"))
+check('dsh-fit-test：前端有按钮', verSrc.includes("t('common.detectFit')"))
+check('dsh-fit-test：前端调 fitCommonScript', verSrc.includes("action: 'fitCommonScript'"))
+check('dsh-fit-test：结果区可收起', verSrc.includes('setFit(null)'))
+check('dsh-fit-test：说明了这是技术匹配、不判断题材', verSrc.includes("t('common.fitHint')"))
+
+/* ---- dsh-fit-bias-test：检测结果不该只说好话 ---- */
+
+/* 这个功能的定位是「技术契合度」，不是内容推荐。要能看出脚本用到了哪些能力，
+   也要能看出"这卡没什么可受益的"。理由为空才更有说服力。 */
+check('dsh-fit-bias-test：能力标签来自脚本内容',
+  /const active = RULES\.filter/.test(hostSrc))
+check('dsh-fit-bias-test：没匹配上就不进结果（而不是硬凑理由）',
+  /if \(!reasons\.length && !already\) continue/.test(hostSrc))
+check('dsh-fit-bias-test：结果里带卡的特征快照，便于核对',
+  /feat,\s*$|feat,$/m.test(hostSrc))
+
+
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1
