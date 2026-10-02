@@ -1308,6 +1308,93 @@ check('dsh-fit-bias-test：结果里带卡的特征快照，便于核对',
   /feat,\s*$|feat,$/m.test(hostSrc))
 
 
+/* ---- dsh-fit-job-test：后台分析任务 ---- */
+
+/* 后端：任务函数齐备。 */
+check('dsh-fit-job-test：有 startFitScan / fitScanState / cancelFitScan',
+  ['startFitScan', 'fitScanState', 'cancelFitScan'].every((n) => new RegExp('function\\s+' + n + '\\b').test(hostSrc)))
+check('dsh-fit-job-test：三个路由都挂了',
+  ['startFitScan', 'fitScanState', 'cancelFitScan'].every((n) => hostSrc.includes("case '" + n + "'")))
+check('dsh-fit-job-test：库里没有该脚本时明确报错',
+  /function startFitScan[\s\S]{0,900}库里没有这个脚本/.test(hostSrc))
+
+/* 任务在宿主进程里 —— 这是"关界面也能跑"的根本。 */
+check('dsh-fit-job-test：任务表在模块作用域（不在请求里建）',
+  /const FIT_JOBS = new Map\(\)/.test(hostSrc))
+check('dsh-fit-job-test：已在跑的任务直接复用，不重复起',
+  /if \(running && running\.status === 'running'\) return/.test(hostSrc))
+
+/* 落盘：关界面/重启都能接着看。 */
+check('dsh-fit-job-test：任务结果落盘',
+  /function writeFitJob[\s\S]{0,300}writeFileSync/.test(hostSrc))
+check('dsh-fit-job-test：读状态时先看内存、再看盘',
+  /function readFitJob[\s\S]{0,300}FIT_JOBS\.get[\s\S]{0,300}readFileSync/.test(hostSrc))
+check('dsh-fit-job-test：每张卡处理后立刻落盘（不是全部跑完才写）',
+  /job\.done \+= 1\s*\n\s*writeFitJob\(job\)/.test(hostSrc))
+
+/* 不 await 任务本身 —— 否则请求会一直挂着，前端拿不到 id。 */
+check('dsh-fit-job-test：启动不 await 任务（请求立刻返回）',
+  /void runFitScan\(job, L, new Set\(\)\)\.catch/.test(hostSrc))
+
+/* 循环里让出事件循环，否则会占满宿主进程。 */
+check('dsh-fit-job-test：逐卡循环中有让出（setTimeout 0）',
+  /await new Promise\(\(r\) => setTimeout\(r, 0\)\)/.test(hostSrc))
+check('dsh-fit-job-test：支持取消', /if \(job\.cancelled\) break/.test(hostSrc))
+
+/* 深度分析读的是卡里实际存在的东西，理由才可核对。 */
+check('dsh-fit-job-test：抽卡信息时读了正则名 / 脚本名 / 世界书标题',
+  /regexNames: regs\.map/.test(hostSrc) && /scriptNames: scripts\.map/.test(hostSrc) && /bookTitles: book\.map/.test(hostSrc))
+check('dsh-fit-job-test：不读全文（卡有 11MB），只取片段',
+  /cut\(d\.description, 400\)/.test(hostSrc))
+check('dsh-fit-job-test：理由引用具体名字（可核对）',
+  /prof\.regexNames\.filter/.test(hostSrc))
+
+/* 前端：轮询 + 重开恢复。 */
+check('dsh-fit-job-test：有 fitJob 状态', verSrc.includes('const [fitJob, setFitJob]'))
+check('dsh-fit-job-test：启动调 startFitScan', verSrc.includes("action: 'startFitScan'"))
+check('dsh-fit-job-test：轮询调 fitScanState', verSrc.includes("action: 'fitScanState'"))
+check('dsh-fit-job-test：只在 running 时轮询', /fitJob\.status !== 'running'\) return undefined/.test(verSrc))
+check('dsh-fit-job-test：用 localStorage 记住上次那个脚本（重开接着看）',
+  verSrc.includes("localStorage.getItem('dwb-fit-job')") && verSrc.includes("localStorage.setItem('dwb-fit-job'"))
+check('dsh-fit-job-test：轮询停了任务也不会停（注释说明这一点）',
+  verSrc.includes('任务在宿主进程里跑'))
+
+/* UI：进度条与结果区。 */
+check('dsh-fit-job-test：有进度条', verSrc.includes("t('common.jobProgress')") && verSrc.includes('dwb-progress-bar'))
+check('dsh-fit-job-test：进度条按 done/total 算宽度',
+  /fitJob\.done \/ fitJob\.total/.test(verSrc))
+check('dsh-fit-job-test：结果区列出理由', verSrc.includes('c.reasons'))
+check('dsh-fit-job-test：说明了这不是模型级判断', verSrc.includes("t('common.jobNote')"))
+check('dsh-fit-job-test：结果带卡的特征快照（正则数/脚本数/世界书数）',
+  verSrc.includes("t('common.jobProfile')"))
+check('dsh-fit-job-test：能取消', verSrc.includes("action: 'cancelFitScan'"))
+
+/* ---- 守卫条件测试：这一条来自本次踩的坑 ---- */
+
+/* 我写补丁时用 !s.includes("'common.genFit'") 当"中文还没加"的守卫，
+   但英文那步先执行、已经插了这个键名，于是守卫恒为 false，中文被静默跳过。
+   守卫要判"目标那份在不在"，不能判"这个键名在不在"。 */
+check('dsh-fit-job-test：中英词典键一致（本条曾因守卫写错而漏）',
+  (() => {
+    const keysOf = (src, from) => {
+      const at = src.indexOf(from)
+      if (at < 0) return []
+      const open = src.indexOf('{', at)
+      let d = 0, end = open
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') d++
+        else if (src[i] === '}') { d--; if (d === 0) { end = i; break } }
+      }
+      return [...src.slice(open, end).matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1])
+    }
+    const zh = keysOf(verSrc, 'const zh = {')
+    const en = keysOf(verSrc, 'const en = {')
+    const onlyZh = zh.filter((k) => !en.includes(k))
+    const onlyEn = en.filter((k) => !zh.includes(k))
+    return onlyZh.length === 0 && onlyEn.length === 0
+  })())
+
+
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1

@@ -310,6 +310,18 @@ window.__ModuleLoader__.load({
       'common.fitHas': '这张卡已有 {n} 个脚本',
       'common.fitFail': '检测失败。',
       'backup.dir.custom': '已自定义备份目录',
+      'common.genFit': '生成精准建议',
+      'common.genFitStarted': '已开始后台分析 —— 关掉这个面板也会继续。',
+      'common.genFitFail': '启动失败。',
+      'common.jobTitle': '后台分析（',
+      'common.jobProgress': '已分析 {done} / {total}',
+      'common.jobDone': '分析完成，共 {n} 张卡。',
+      'common.jobNote': '这一步是逐张读卡的静态分析（读 description、正则名、脚本名、世界书标题），不是模型读完整卡的判断 —— 宿主没给插件模型接口。',
+      'common.jobCancel': '取消',
+      'common.jobCardsTitle': '分析结果（{n} 张）',
+      'common.jobCardsHint': '每条理由都引用了卡里实际存在的东西（正则名、脚本名、世界书条数），可以照着核对。',
+      'common.jobNoReason': '没找到明显的契合点。',
+      'common.jobProfile': '正则 {r} 条 / {rc} 字符 · 脚本 {s} 个 · 世界书 {b} 条',
     }
 
     const en = {
@@ -342,6 +354,18 @@ window.__ModuleLoader__.load({
       'common.fitEmpty': 'No obviously benefiting card found.',
       'common.fitHas': 'this card already has {n} scripts',
       'common.fitFail': 'Detection failed.',
+      'common.genFit': 'Deep analysis',
+      'common.genFitStarted': 'Background analysis started - it keeps running if you close this panel.',
+      'common.genFitFail': 'Could not start it.',
+      'common.jobTitle': 'Background analysis (',
+      'common.jobProgress': 'Analyzed {done} / {total}',
+      'common.jobDone': 'Finished, {n} cards.',
+      'common.jobNote': 'This reads each card and statically analyzes it (description, regex names, script names, worldbook titles). It is not a model reading the whole card - the host does not expose a model API to plugins.',
+      'common.jobCancel': 'Cancel',
+      'common.jobCardsTitle': 'Results ({n} cards)',
+      'common.jobCardsHint': 'Every reason cites something that actually exists in the card (regex names, script names, worldbook count), so you can check it.',
+      'common.jobNoReason': 'No clear fit found.',
+      'common.jobProfile': '{r} regexes / {rc} chars - {s} scripts - {b} worldbook entries',
       'common.tagEmpty': 'No card has this script yet.',
       'common.catEmpty': 'No scripts in this category.',
       'common.pickAll': 'Select all',
@@ -1817,6 +1841,11 @@ const [importOpen, setImportOpen] = useState(false)
       const [commonTag, setCommonTag] = useState('')
       /* 检测结果。每次只针对一个脚本，所以存单个对象。 */
       const [fit, setFit] = useState(null)
+      /* dsh-fit-job —— 后台任务的状态。
+       *
+       * 任务在宿主进程里跑，所以关掉面板照样继续；这里只是"看一眼"。
+       * 重开面板时靠 localStorage 记住上次看的是哪个脚本，接着轮询。 */
+      const [fitJob, setFitJob] = useState(null)
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -1871,6 +1900,55 @@ const [importOpen, setImportOpen] = useState(false)
        *
        * 给的是可验证的匹配（脚本用到的能力 × 卡的特征），不是内容层面的推荐 ——
        * "这张卡的界面能交给它"这种话要读懂卡才说得出来，关键词匹配给不出。 */
+      /* 启动后台扫描。已经在跑的直接拿到现有任务。 */
+      const genFit = async (name) => {
+        setCommonBusy(true)
+        try {
+          const r = await apiPost({ action: 'startFitScan', name })
+          if (!r || !r.ok) { push(t('common.genFitFail'), 'bad'); return }
+          setFitJob(r.job)
+          try { window.localStorage.setItem('dwb-fit-job', name) } catch { /* 无痕模式等，无所谓 */ }
+          push(t('common.genFitStarted'), 'ok')
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
+
+      /*
+       * 轮询任务进度。任务在前端断开后仍然继续，所以这里只是"读状态"，
+       * 停了也不影响它跑。
+       */
+      useEffect(() => {
+        if (view !== 'common') return undefined
+        if (!fitJob || fitJob.status !== 'running') return undefined
+        let stopped = false
+        const tick = async () => {
+          try {
+            const r = await apiPost({ action: 'fitScanState', name: fitJob.name })
+            if (!stopped && r && r.ok && r.job) setFitJob(r.job)
+          } catch { /* 下一轮再试 */ }
+        }
+        const timer = setInterval(tick, 1000)
+        return () => { stopped = true; clearInterval(timer) }
+      }, [view, fitJob, fitJob && fitJob.name, fitJob && fitJob.status])
+
+      /* 重开面板时接着看上次那个任务 —— 它可能还在跑，也可能已经跑完。 */
+      useEffect(() => {
+        if (view !== 'common' || fitJob) return undefined
+        let name = ''
+        try { name = window.localStorage.getItem('dwb-fit-job') || '' } catch { /* 忽略 */ }
+        if (!name) return undefined
+        let stopped = false
+        void (async () => {
+          try {
+            const r = await apiPost({ action: 'fitScanState', name })
+            if (!stopped && r && r.ok && r.job) setFitJob(r.job)
+          } catch { /* 忽略 */ }
+        })()
+        return () => { stopped = true }
+      }, [view, fitJob])
       const detectFit = async (name) => {
         setCommonBusy(true)
         try {
@@ -3070,6 +3148,7 @@ const [importOpen, setImportOpen] = useState(false)
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
                         h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void detectFit(L.name), disabled: commonBusy }, t('common.detectFit')),
+                        h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void genFit(L.name), disabled: commonBusy }, t('common.genFit')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
@@ -3079,6 +3158,64 @@ const [importOpen, setImportOpen] = useState(false)
                 )
               : h('div', { className: 'dwb-empty' }, commonCat ? t('common.catEmpty') : t('common.libEmpty')),
           ),
+
+          /* ── 后台任务进度（关掉面板也会继续） ── */
+          fitJob
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('span', { className: 'dwb-title dwb-grow' }, t('common.jobTitle') + fitJob.name + ')'),
+                  fitJob.status === 'running'
+                    ? h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void apiPost({ action: 'cancelFitScan', name: fitJob.name }).then(() => setFitJob(null)) }, t('common.jobCancel'))
+                    : h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setFitJob(null) }, t('common.fitClose')),
+                ),
+                fitJob.status === 'running'
+                  ? h('div', { className: 'dwb-progress-wrap' },
+                      h('div', { className: 'dwb-progress' },
+                        h('div', { className: 'dwb-progress-bar', style: { width: (fitJob.total ? Math.round(fitJob.done / fitJob.total * 100) : 0) + '%' } }),
+                      ),
+                      h('div', { className: 'dwb-sub' }, t('common.jobProgress').replace('{done}', fitJob.done).replace('{total}', fitJob.total)),
+                    )
+                  : h('div', { className: 'dwb-hint' }, t('common.jobDone').replace('{n}', (fitJob.cards || []).length)),
+                h('div', { className: 'dwb-sub' }, t('common.jobNote')),
+              )
+            : null,
+
+          /* ── 深度分析结果 ── */
+          fitJob && fitJob.status !== 'running' && (fitJob.cards || []).length
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h('div', { className: 'dwb-title' }, t('common.jobCardsTitle').replace('{n}', fitJob.cards.length)),
+                h('div', { className: 'dwb-hint' }, t('common.jobCardsHint')),
+                h('div', { className: 'dwb-col', style: { gap: 6 } },
+                  fitJob.cards.map((c) => h(
+                    'div',
+                    { className: 'dwb-card flat', key: c.file },
+                    h(
+                      'div',
+                      { className: 'dwb-row' },
+                      h('span', { className: 'dwb-grow' }, c.label),
+                      c.profile && c.profile.markerKind === 'hand-tuned-mvu' ? h('span', { className: 'dwb-chip' }, t('common.kindHand')) : null,
+                      c.installed ? h('span', { className: 'dwb-chip ok' }, t('common.installed')) : null,
+                      c.installable === false ? null : h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void doCommon('installCommon', { cards: [c.file] }, t('common.installOne')), disabled: commonBusy }, t('common.installOne')),
+                    ),
+                    (c.reasons || []).map((why, i) => h('div', { className: 'dwb-sub', key: i }, '· ' + why)),
+                    !(c.reasons || []).length ? h('div', { className: 'dwb-sub' }, t('common.jobNoReason')) : null,
+                    c.profile
+                      ? h('div', { className: 'dwb-sub' }, t('common.jobProfile')
+                          .replace('{r}', c.profile.regexCount)
+                          .replace('{rc}', (c.profile.regexChars || 0).toLocaleString())
+                          .replace('{s}', (c.profile.scriptNames || []).length)
+                          .replace('{b}', c.profile.bookCount))
+                      : null,
+                  )),
+                ),
+              )
+            : null,
 
           /* ── 检测结果 ── */
           fit
