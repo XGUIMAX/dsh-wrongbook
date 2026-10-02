@@ -468,7 +468,7 @@ const ctx = {
 plugin.apply(ctx)
 
 check('注册了字典', dicts.length === 1 && dicts[0].ns === 'settings.dsh-wrongbook', dicts[0] && dicts[0].ns)
-check('座位数 = 2（settings.section + settings.plugin.item）', registrations.length === 2, String(registrations.length))
+check('座位数 = 2（settings.section + sidebar.footer.action）', registrations.length === 2, String(registrations.length))
 const seat = registrations[0]
 check('座位是 settings.section', seat.options.name === 'settings.section', seat.options.name)
 check('座位 id = wrongbook', seat.options.id === 'wrongbook', seat.options.id)
@@ -477,8 +477,17 @@ check('座位 label = 错题库', seat.options.label() === '错题库', seat.opt
 /* 原先这条是「没有侧栏入口」。现在补了 settings.plugin.item，断言反过来。 */
 check('有 settings.section 座位',
   registrations.some((r) => r.options.name === 'settings.section'))
-check('有 settings.plugin.item 座位',
-  registrations.some((r) => r.options.name === 'settings.plugin.item'))
+/* 侧栏底部那个座位 —— 这才是用户说的"左下角"，与卡片更新器同一个 slot。 */
+check('有 sidebar.footer.action 座位',
+  registrations.some((r) => r.options.name === 'sidebar.footer.action'))
+/* 这组断言在 verSrc 正式定义之前，先读一份 —— 否则会报
+   "Cannot access verSrc before initialization"。 */
+const verSrc = fs.readFileSync(SRC, 'utf8')
+
+check('侧栏入口的组件是 SideEntry', verSrc.includes('function SideEntry'))
+check('侧栏入口自带样式（面板没开时样式表还没加载）',
+  verSrc.includes('这里全部内联写死') || verSrc.includes('style: btn'))
+check('侧栏入口支持 Esc 关闭', verSrc.includes("ev.key === 'Escape'"))
 
 const zhKeys = Object.keys(dicts[0].dict.zh).sort()
 const enKeys = Object.keys(dicts[0].dict.en).sort()
@@ -967,7 +976,7 @@ check('dsh-verify-peer：peerRecordOf 里查了 pairKey（MVU 版靠这条取得
 check('dsh-verify-peer：左侧筛选按筛选条件算计数', peerSrc.includes('dsh-wb-filter-cards') && peerSrc.includes('filterCounts'))
 check('dsh-verify-peer：空筛选时不过滤（否则一进页面就空列表）', /!filtersActive \? true/.test(peerSrc))
 check('dsh-verify-peer：对端探测失败也静默降级（catch 里建空 Map）', peerSrc.includes('peerPresetCache = new Map()'))
-const verSrc = fs.readFileSync(SRC, 'utf8')
+// 上面已读过一份；这里原来的重复声明已去掉：// verSrc = fs.readFileSync(SRC, 'utf8')
 
 /* hostSrc：卡型标记那组要查后端，所以也读一份 lib/index.js。
 
@@ -1297,7 +1306,11 @@ check('dsh-fit-test：已装的排在后面', /Number\(a\.installed\) - Number\(
 
 check('dsh-fit-test：前端有按钮', verSrc.includes("t('common.detectFit')"))
 check('dsh-fit-test：前端调 fitCommonScript', verSrc.includes("action: 'fitCommonScript'"))
-check('dsh-fit-test：结果区可收起', verSrc.includes('setFit(null)'))
+/* 原来这一区是「收起 = 清掉数据」，现在改成折叠开关（数据留着，能再展开）。 */
+check('dsh-fit-test：即时检测区可折叠', verSrc.includes('setFitCollapsed(!fitCollapsed)'))
+check('dsh-fit-test：后台结果区可折叠', verSrc.includes('setJobCollapsed(!jobCollapsed)'))
+check('dsh-fit-test：折叠时内容不渲染（不是只清数据）',
+  /jobCollapsed\s*\n\s*\? null/.test(verSrc))
 check('dsh-fit-test：说明了这是技术匹配、不判断题材', verSrc.includes("t('common.fitHint')"))
 
 /* ---- dsh-fit-bias-test：检测结果不该只说好话 ---- */
@@ -1442,12 +1455,57 @@ check('dsh-handoff-test：提示「发出去之前先看一眼」',
   verSrc.includes('发出去之前先看一眼') || verSrc.includes("t('common.handoffHint')"))
 
 /* 侧栏入口（本轮另一处改动）。 */
-check('dsh-handoff-test：注册了 settings.plugin.item（插件菜单那一层）',
-  verSrc.includes("ctx.slots.inject('settings.plugin.item'"))
-check('dsh-handoff-test：两个座位都指向同一个组件',
-  (verSrc.match(/SettingsSection,\s*\n\s*\),/g) || []).length >= 2)
+check('dsh-handoff-test：侧栏入口用 sidebar.footer.action（不是 plugin.item）',
+  verSrc.includes("ctx.slots.inject('sidebar.footer.action'") && !verSrc.includes("ctx.slots.inject('settings.plugin.item'"))
+/* 两个入口的组件不同：设置面板里挂 SettingsSection（整页），
+   侧栏挂 SideEntry（一个小按钮 + overlay）。混用会让侧栏按钮渲染整页。 */
+check('dsh-handoff-test：设置页用 SettingsSection', /SettingsSection,/.test(verSrc))
+check('dsh-handoff-test：侧栏用 SideEntry', /SideEntry,/.test(verSrc))
 check('dsh-handoff-test：注释说清了两个入口的分工',
   verSrc.includes('settings.plugin.item') && verSrc.includes('设置面板里的一个页面'))
+
+
+/* ---- dsh-sidefoot-render：侧栏按钮真渲染 ---- */
+
+/* 造 React 元素成功不代表渲染时不抛 —— 侧栏那份在面板关着时是唯一渲染的东西，
+   所以必须真跑一遍，并且覆盖 props 的几种形态。 */
+function renderComp(comp, props) {
+  cursor = 0
+  effects.length = 0
+  let node = comp(props)
+  let guard = 0
+  while (node && typeof node === 'object' && node.type && typeof node.type === 'function' && guard++ < 10) node = node.type(node.props)
+  out.texts.length = 0
+  out.types.length = 0
+  walk(node)
+  return node
+}
+
+const sideReg = registrations.find((r) => String(r.options.name) === 'sidebar.footer.action')
+check('dsh-sidefoot-render：取到侧栏注册', !!sideReg)
+check('dsh-sidefoot-render：注册里带组件', !!sideReg && typeof sideReg.component === 'function')
+
+if (sideReg && typeof sideReg.component === "function") {
+  for (const pair of [['宽', { wide: true }], ['窄', { wide: false }], ['缺省', undefined]]) {
+    const label = pair[0]
+    let err = null
+    let tree = null
+    try { tree = renderComp(sideReg.component, pair[1]) } catch (e) { err = e }
+    check('dsh-sidefoot-render：' + label + ' props 能渲染不抛', !err, err ? String(err && err.message) : 'ok')
+    check('dsh-sidefoot-render：' + label + ' props 有产出', !!tree)
+  }
+}
+
+/* 面板关着时它独自渲染，样式必须内联，否则掉成浏览器默认按钮。 */
+check('dsh-sidefoot-render：按钮样式内联写死',
+  /function SideEntry[\s\S]{0,2800}style: btn/.test(verSrc))
+check('dsh-sidefoot-render：overlay 内联定位',
+  /function SideEntry[\s\S]{0,3400}position: 'fixed'/.test(verSrc))
+check('dsh-sidefoot-render：初始不开，点了才开',
+  /const \[open, setOpen\] = useState\(false\)/.test(verSrc))
+check('dsh-sidefoot-render：点遮罩可关', verSrc.includes('ev.target === ev.currentTarget'))
+check('dsh-sidefoot-render：overlay 里挂 Panel 本体',
+  /function SideEntry[\s\S]{0,3800}h\(Panel, null\)/.test(verSrc))
 
 
 let failed = 0

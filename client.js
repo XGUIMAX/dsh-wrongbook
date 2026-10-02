@@ -322,7 +322,10 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': '每条理由都引用了卡里实际存在的东西（正则名、脚本名、世界书条数），可以照着核对。',
       'common.jobNoReason': '没找到明显的契合点。',
       'common.jobProfile': '正则 {r} 条 / {rc} 字符 · 脚本 {s} 个 · 世界书 {b} 条',
-      'common.handOff': '交给工作台',
+      'common.handOff': '交给工作台生成建议',
+      'common.collapse': '收起',
+      'common.expand': '展开',
+      'common.jobClear': '清除',
       'common.handoffTitle': '交给工作台的文本（',
       'common.handoffHint': '这段文字已复制到剪贴板。对话页开着的话也帮你填进输入框了 —— 发出去之前先看一眼。它会让工作台逐张读卡，点名每张卡具体哪个功能能被这个脚本接管。',
       'common.handoffCopy': '复制',
@@ -373,7 +376,10 @@ window.__ModuleLoader__.load({
       'common.jobCardsHint': 'Every reason cites something that actually exists in the card (regex names, script names, worldbook count), so you can check it.',
       'common.jobNoReason': 'No clear fit found.',
       'common.jobProfile': '{r} regexes / {rc} chars - {s} scripts - {b} worldbook entries',
-      'common.handOff': 'Hand to workspace',
+      'common.handOff': 'Get advice from the workspace',
+      'common.collapse': 'Collapse',
+      'common.expand': 'Expand',
+      'common.jobClear': 'Clear',
       'common.handoffTitle': 'Text for the workspace (',
       'common.handoffHint': 'Copied to your clipboard. If the chat page is open it is also filled into the input box - read it before sending. It asks the workspace to read every card and name what each one would gain.',
       'common.handoffCopy': 'Copy',
@@ -1862,6 +1868,10 @@ const [importOpen, setImportOpen] = useState(false)
       const [fitJob, setFitJob] = useState(null)
       /* 交给工作台的那段文本。生成后先给用户看，再让他决定要不要发。 */
       const [handoff, setHandoff] = useState(null)
+      /* 两个结果区的展开状态。原来"收起"只是把数据清掉，
+         既不能收起来看别的、也拿不回来；改成折叠开关。 */
+      const [fitCollapsed, setFitCollapsed] = useState(false)
+      const [jobCollapsed, setJobCollapsed] = useState(false)
       const [commonBusy, setCommonBusy] = useState(false)
 
       const loadCommon = useCallback(async () => {
@@ -3223,8 +3233,7 @@ const [importOpen, setImportOpen] = useState(false)
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
                         h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void detectFit(L.name), disabled: commonBusy }, t('common.detectFit')),
-                        h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void genFit(L.name), disabled: commonBusy }, t('common.genFit')),
-                        h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void handOff(L, cards), disabled: commonBusy }, t('common.handOff')),
+                        h('button', { type: 'button', className: 'dwb-btn tiny primary', onClick: () => void handOff(L, cards), disabled: commonBusy }, t('common.handOff')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
                       ),
                       L.meta && L.meta.purpose ? h('div', { className: 'dwb-sub' }, L.meta.purpose) : null,
@@ -3263,22 +3272,29 @@ const [importOpen, setImportOpen] = useState(false)
                   h('span', { className: 'dwb-title dwb-grow' }, t('common.jobTitle') + fitJob.name + ')'),
                   fitJob.status === 'running'
                     ? h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void apiPost({ action: 'cancelFitScan', name: fitJob.name }).then(() => setFitJob(null)) }, t('common.jobCancel'))
-                    : h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setFitJob(null) }, t('common.fitClose')),
+                    : null,
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setJobCollapsed(!jobCollapsed) }, jobCollapsed ? t('common.expand') : t('common.collapse')),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => { setFitJob(null); setJobCollapsed(false) } }, t('common.jobClear')),
                 ),
-                fitJob.status === 'running'
-                  ? h('div', { className: 'dwb-progress-wrap' },
-                      h('div', { className: 'dwb-progress' },
-                        h('div', { className: 'dwb-progress-bar', style: { width: (fitJob.total ? Math.round(fitJob.done / fitJob.total * 100) : 0) + '%' } }),
-                      ),
-                      h('div', { className: 'dwb-sub' }, t('common.jobProgress').replace('{done}', fitJob.done).replace('{total}', fitJob.total)),
-                    )
-                  : h('div', { className: 'dwb-hint' }, t('common.jobDone').replace('{n}', (fitJob.cards || []).length)),
-                h('div', { className: 'dwb-sub' }, t('common.jobNote')),
+                /* 折叠时把进度条、完成提示、说明一起收起来 —— 只收下半部分等于没收。 */
+                jobCollapsed
+                  ? null
+                  : h(Fragment, null,
+                    fitJob.status === 'running'
+                      ? h('div', { className: 'dwb-progress-wrap' },
+                          h('div', { className: 'dwb-progress' },
+                            h('div', { className: 'dwb-progress-bar', style: { width: (fitJob.total ? Math.round(fitJob.done / fitJob.total * 100) : 0) + '%' } }),
+                          ),
+                          h('div', { className: 'dwb-sub' }, t('common.jobProgress').replace('{done}', fitJob.done).replace('{total}', fitJob.total)),
+                        )
+                      : h('div', { className: 'dwb-hint' }, t('common.jobDone').replace('{n}', (fitJob.cards || []).length)),
+                    h('div', { className: 'dwb-sub' }, t('common.jobNote')),
+                    ),
               )
             : null,
 
           /* ── 深度分析结果 ── */
-          fitJob && fitJob.status !== 'running' && (fitJob.cards || []).length
+          fitJob && fitJob.status !== 'running' && (fitJob.cards || []).length && !jobCollapsed
             ? h(
                 'div',
                 { className: 'dwb-card' },
@@ -3319,11 +3335,11 @@ const [importOpen, setImportOpen] = useState(false)
                   'div',
                   { className: 'dwb-row' },
                   h('span', { className: 'dwb-title dwb-grow' }, t('common.fitTitle') + fit.name + ')'),
-                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setFit(null) }, t('common.fitClose')),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => setFitCollapsed(!fitCollapsed) }, fitCollapsed ? t('common.expand') : t('common.collapse')),
                 ),
                 h('div', { className: 'dwb-sub' }, t('common.fitCaps') + (fit.capabilities.length ? fit.capabilities.join(' · ') : t('common.fitNoCaps'))),
                 h('div', { className: 'dwb-hint' }, t('common.fitHint')),
-                fit.cards.length
+                fitCollapsed ? null : (fit.cards.length
                   ? h(
                       'div',
                       { className: 'dwb-col', style: { gap: 6 } },
@@ -3343,7 +3359,7 @@ const [importOpen, setImportOpen] = useState(false)
                           : null,
                       )),
                     )
-                  : h('div', { className: 'dwb-empty' }, t('common.fitEmpty')),
+                  : h('div', { className: 'dwb-empty' }, t('common.fitEmpty')))
               )
             : null,
 
@@ -3846,6 +3862,78 @@ const [importOpen, setImportOpen] = useState(false)
       )
     }
 
+    /*
+     * 侧栏底部那个入口。
+     *
+     * 面板关着的时候，这个按钮是整个插件唯一渲染的东西 —— 所以样式不能等
+     * SettingsSection 挂载（那要等 tab 打开），这里全部内联写死。
+     *
+     * 组件形态照卡片更新器的 SideEntry：一个按钮，点开一个覆盖层，面板本体塞进去。
+     */
+    function SideEntry(props) {
+      const isWide = !props || props.wide !== false
+      const [open, setOpen] = useState(false)
+
+      useEffect(() => {
+        if (!open) return undefined
+        const onKey = (ev) => { if (ev.key === 'Escape') setOpen(false) }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [open])
+
+      const btn = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: isWide ? '100%' : 'auto',
+        padding: isWide ? '6px 10px' : '6px',
+        border: 'none',
+        borderRadius: 8,
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        textAlign: 'left',
+        cursor: 'pointer',
+      }
+
+      return h(
+        Fragment,
+        null,
+        h('button', {
+          type: 'button',
+          style: btn,
+          title: t('nav'),
+          'aria-label': t('nav'),
+          'aria-haspopup': 'dialog',
+          'aria-expanded': open,
+          onClick: () => setOpen(true),
+        },
+          /* 图标用行内 SVG，省得依赖外部样式或图标字体。 */
+          h('svg', { width: isWide ? 16 : 18, height: isWide ? 16 : 18, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5 },
+            h('path', { d: 'M3 3.5h10v9H3z' }),
+            h('path', { d: 'M3 6.5h10' }),
+            h('path', { d: 'M6 6.5v6' }),
+          ),
+          isWide ? h('span', null, t('nav')) : null,
+        ),
+        open
+          ? h('div', {
+              style: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 },
+              onClick: (ev) => { if (ev.target === ev.currentTarget) setOpen(false) },
+            },
+              h('div', {
+                style: { width: 'min(1100px, 100%)', height: 'min(820px, 100%)', display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-layer-1, #1b1b1f)', borderRadius: 12, overflow: 'hidden', boxShadow: '0 12px 40px rgba(0,0,0,.35)' },
+              },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid rgba(128,128,128,.25)' } },
+                  h('div', { style: { flex: 1, fontWeight: 600 } }, t('nav')),
+                  h('button', { type: 'button', style: { ...btn, width: 'auto' }, onClick: () => setOpen(false) }, t('btn.close')),
+                ),
+                h('div', { style: { flex: 1, overflow: 'auto', padding: 14 } }, h(Panel, null)),
+              ),
+            )
+          : null,
+      )
+    }
     function SettingsSection() {
       return h(Panel, null)
     }
@@ -3881,20 +3969,21 @@ const [importOpen, setImportOpen] = useState(false)
         ),
       )
 
-      /* 插件菜单里的一项 —— 与 settings.section 指向同一组件，
-         只是入口位置不同（那个在设置面板内，这个在插件菜单里）。 */
-      ctx.slots.inject('settings.plugin.item', () =>
+      /* 侧栏底部。这才是"左下角"—— 与卡片更新器同一个座位。 */
+      ctx.slots.inject('sidebar.footer.action', () =>
         ctx.slots.register(
           {
-            name: 'settings.plugin.item',
-            key: 'dsh-wrongbook',
-            order: 46,
+            name: 'sidebar.footer.action',
+            id: 'wrongbook',
+            order: 47,
             label: () => t('nav'),
             locale: NS,
+            inject: () => ({ t }),
           },
-          SettingsSection,
+          SideEntry,
         ),
       )
+
     }
 
     return { name: 'dsh-wrongbook', inject: ['slots', 'locale'], apply }
