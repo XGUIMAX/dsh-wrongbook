@@ -804,23 +804,59 @@ window.__ModuleLoader__.load({
       '@media (max-width:640px){.dwb-cols{grid-template-columns:1fr}.dwb-grid2{grid-template-columns:1fr}}',
     ].join('\n')
 
-    /** 样式表按 id 挂一次即可；重复挂会把同一份规则叠很多遍。 */
+    /** 每页只装一次；见 installStyles。 */
+    let styleWatcher = null
+
+    /**
+     * 把样式表放进文档，并让它留在那里。
+     *
+     * 这里要同时满足两件事：
+     *
+     * ① 面板挂在两个地方（设置页与侧栏入口），所以不能同时存在两个 style 标签 ——
+     *    同优先级下后出现的那个会赢下每一条属性，而先挂哪个取决于用户先点了什么，
+     *    于是页面可能在旧版本样式下渲染。
+     * ② 标签本身可能被别人拿掉。侧栏入口常驻整个页面生命周期，它的 useEffect 只跑
+     *    一次；之后任何重建 head 的动作（比如切换主题）都会让样式表消失，而按钮
+     *    就一直画成浏览器默认样子 —— 带边框的灰方块、文字居中、没有满宽。
+     *    识别它的线索是：样式表里写着 border:none，屏幕上却有边框。
+     *
+     * 所以标签是「复用」而不是「每次重建」，并且用 MutationObserver 盯着 head，
+     * 谁把它删了就补回来。只有标签存在、内容按需重写，文档顺序就不再影响胜负。
+     */
     function installStyles() {
-      try {
-        for (const old of Array.from(document.querySelectorAll('style[data-dsh-wrongbook]'))) old.remove()
+      const head = typeof document === 'undefined' ? null : document.head
+      if (!head) return
+      const fill = (tag) => {
+        tag.setAttribute('data-dsh-wrongbook', '1')
+        if (tag.textContent !== CSS) tag.textContent = CSS
+        return tag
+      }
+      const existing = head.querySelector('style[data-dsh-wrongbook]')
+      if (existing) fill(existing)
+      else head.appendChild(fill(document.createElement('style')))
+
+      if (styleWatcher || typeof MutationObserver !== 'function') return
+      /* 回调只补缺失的标签，不动已存在的那个 —— 所以它自己 append 完再进来会立刻停下。 */
+      styleWatcher = new MutationObserver(() => {
+        const live = document.head && document.head.querySelector('style[data-dsh-wrongbook]')
+        if (live) return
         const tag = document.createElement('style')
         tag.setAttribute('data-dsh-wrongbook', '1')
         tag.textContent = CSS
         document.head.appendChild(tag)
-      } catch {
-        /* 没有 head 的文档不该让面板渲染不出来 */
-      }
+      })
+      styleWatcher.observe(head, { childList: true })
     }
 
     function useStyles() {
+      /*
+       * 每次 render 都调，而不是只调一次。installStyles 是幂等的（一次查询 + 一次
+       * 字符串比较），而任何一次 render 都是把丢失的样式表补回来的机会。
+       * MutationObserver 是主防线；这一句负责没有 MutationObserver 的浏览器。
+       */
       useEffect(() => {
         installStyles()
-      }, [])
+      })
     }
 
     async function apiGet() {

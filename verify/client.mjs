@@ -15,10 +15,27 @@ const win = {
   confirm: () => true,
   prompt: () => null,
 }
+/* 能记住 style 标签的迷你 DOM —— 样式表复用的逻辑要能查到已有的那个。 */
+const styleTags = []
 const doc = {
-  head: { appendChild() {} },
-  createElement: () => ({ setAttribute() {}, textContent: '', click() {}, style: {} }),
-  querySelectorAll: () => [],
+  /* 能记住 style 标签的迷你 DOM —— 样式表复用的逻辑要能查到已有的那个。 */
+  head: {
+    appendChild(tag) { styleTags.push(tag); return tag },
+    removeChild(tag) { const i = styleTags.indexOf(tag); if (i >= 0) styleTags.splice(i, 1); return tag },
+    querySelector(sel) {
+      const m = /style\[([^\]]+)\]/.exec(sel)
+      if (!m) return null
+      return styleTags.find((t) => t.attrs && t.attrs[m[1]]) || null
+    },
+  },
+  createElement: () => ({
+    attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v },
+    textContent: '',
+    click() {},
+    style: {},
+  }),
+  querySelectorAll: () => styleTags.slice(),
 }
 
 /* 最小 React：useState 走缓存数组，useEffect 收集后由测试手动 commit */
@@ -1528,6 +1545,35 @@ check('dsh-sidefoot-render：初始不开，点了才开',
 check('dsh-sidefoot-render：点遮罩可关', verSrc.includes('ev.target === ev.currentTarget'))
 check('dsh-sidefoot-render：overlay 里挂 Panel 本体',
   /function SideEntry[\s\S]{0,3800}h\(Panel, null\)/.test(verSrc))
+
+
+/* ---- dsh-styleguard-test：样式表守护 ---- */
+
+/* 侧栏入口常驻整个页面生命周期，它的 useEffect 只跑一次。
+   之后任何重建 head 的动作（主题切换等）都会让样式表消失，
+   而按钮就一直画成浏览器默认样子 —— 带边框的灰方块、文字居中、没有满宽。
+   识别线索：样式表里写着 border:none，屏幕上却有边框。 */
+check('dsh-styleguard-test：installStyles 复用已有标签（不每次重建）',
+  /function installStyles[\s\S]{0,1400}if \(existing\) fill\(existing\)/.test(verSrc))
+check('dsh-styleguard-test：有 MutationObserver 盯着 head',
+  verSrc.includes('new MutationObserver') && verSrc.includes('styleWatcher.observe(head'))
+check('dsh-styleguard-test：observer 只在标签缺失时才补',
+  /const live = document\.head && document\.head\.querySelector[\s\S]{0,200}if \(live\) return/.test(verSrc))
+check('dsh-styleguard-test：观察的是 childList（增删）',
+  verSrc.includes('{ childList: true }'))
+check('dsh-styleguard-test：observer 只装一次', /if \(styleWatcher \|\| typeof MutationObserver/.test(verSrc))
+
+/* useStyles 每次 render 都调 —— 不传依赖数组，这是没有 observer 时的兜底。 */
+check('dsh-styleguard-test：useStyles 每次 render 都调',
+  /function useStyles\(\)[\s\S]{0,400}useEffect\(\(\) => \{[\s\S]{0,80}installStyles\(\)[\s\S]{0,40}\}\)/.test(verSrc))
+check('dsh-styleguard-test：useStyles 未传空依赖数组',
+  !/function useStyles\(\)[\s\S]{0,400}installStyles\(\)[\s\S]{0,40}\}, \[\]\)/.test(verSrc))
+
+/* 两个挂载点只能有一个 style 标签 —— 同优先级下后出现的赢下每条属性。 */
+check('dsh-styleguard-test：靠复用标签避免两个标签并存',
+  verSrc.includes("head.querySelector('style[data-dsh-wrongbook]')"))
+check('dsh-styleguard-test：侧栏组件里调了 useStyles',
+  /function SideEntry[\s\S]{0,600}useStyles\(\)/.test(verSrc))
 
 
 let failed = 0
