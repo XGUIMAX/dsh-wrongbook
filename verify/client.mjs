@@ -1576,6 +1576,64 @@ check('dsh-styleguard-test：侧栏组件里调了 useStyles',
   /function SideEntry[\s\S]{0,600}useStyles\(\)/.test(verSrc))
 
 
+/* ---- dsh-common-update-test：更新库里的脚本 ---- */
+
+/* 与「导入」分开：导入是同名静默覆盖、dsh_meta 按新文件重算；
+   更新只换脚本本体，库里攒下的说明要保住。 */
+check('dsh-common-update-test：后端有 updateCommonScript', hostSrc.includes('function updateCommonScript'))
+check('dsh-common-update-test：路由已挂', hostSrc.includes("case 'updateCommonScript'"))
+check('dsh-common-update-test：库里没有时明确拒绝（让人走导入）',
+  /function updateCommonScript[\s\S]{0,2200}库里没有[\s\S]{0,200}导入脚本/.test(hostSrc))
+
+/* 关键：只换 content，保留 dsh_meta */
+check('dsh-common-update-test：新文件没带 meta 时保留库里的',
+  /const hadMeta = parsed\.dsh_meta && typeof parsed\.dsh_meta === 'object'/.test(hostSrc) &&
+  /merged\.dsh_meta = hadMeta \? parsed\.dsh_meta : \(old\.dsh_meta \|\| \{\}\)/.test(hostSrc))
+check('dsh-common-update-test：带上 keptMeta 告诉前端保留了', /keptMeta: !hadMeta/.test(hostSrc))
+check('dsh-common-update-test：记下 updatedAt', /merged\.dsh_meta\.updatedAt/.test(hostSrc))
+
+/* 内容相同就别动 —— 不要白写一次盘。 */
+check('dsh-common-update-test：内容相同直接返回 changed:false',
+  /if \(oldHash === newHash\)[\s\S]{0,200}changed: false/.test(hostSrc))
+
+/* 更新同样要能退回去。 */
+check('dsh-common-update-test：更新前备份旧版',
+  /function updateCommonScript[\s\S]{0,2600}common-script-backups/.test(hostSrc) &&
+  /function updateCommonScript[\s\S]{0,2600}copyFileSync/.test(hostSrc))
+
+/* 更新库文件不会改卡上那份 —— 要把受影响的面报出来。 */
+check('dsh-common-update-test：返回还装旧版的卡列表', /staleCards = \(st\.cards \|\| \[\]\)/.test(hostSrc))
+check('dsh-common-update-test：staleCards 只算真的装了的（state !== absent）',
+  /staleCards = \(st\.cards \|\| \[\]\)[\s\S]{0,400}state !== 'absent'/.test(hostSrc))
+
+/* 脚本自带持久状态 —— 换文件清不掉它们，得提示。 */
+check('dsh-common-update-test：有 scriptTraits 检测', hostSrc.includes('function scriptTraits'))
+check('dsh-common-update-test：认得 localStorage / indexedDB',
+  /localStorage: \/localStorage/.test(hostSrc) && /indexedDB: \/indexedDB/.test(hostSrc))
+check('dsh-common-update-test：认得世界书 / 聊天记录 / MVU 变量 / 定时器 / window 全局',
+  /worldbook: \/setWorldbook/.test(hostSrc) && /chat: \/setChatMessages/.test(hostSrc) &&
+  /variables: \/replaceMvuData/.test(hostSrc) && /timer: \/setInterval/.test(hostSrc) &&
+  /windowGlobals: \/window/.test(hostSrc))
+check('dsh-common-update-test：取脚本自带的版本常量',
+  /VERSION\|Version/.test(hostSrc) && /version: vm \? vm\[2\]/.test(hostSrc))
+check('dsh-common-update-test：更新时对比前后 traits',
+  /const traitsBefore = scriptTraits\(oldContent\)/.test(hostSrc) &&
+  /const traitsAfter = scriptTraits\(content\)/.test(hostSrc))
+
+/* 前端 */
+check('dsh-common-update-test：库项有「更新」按钮', verSrc.includes("t('common.libUpdate')"))
+check('dsh-common-update-test：有更新面板与输入区', verSrc.includes("t('common.updateTitle')") && verSrc.includes("t('common.updatePlaceholder')"))
+check('dsh-common-update-test：调 updateCommonScript', verSrc.includes("action: 'updateCommonScript'"))
+check('dsh-common-update-test：显示 hash 与长度差异', verSrc.includes("t('common.updateDiff')"))
+check('dsh-common-update-test：内容一样时明说没改', verSrc.includes("t('common.updateSame')"))
+check('dsh-common-update-test：列出生效前需要同步的卡', verSrc.includes("t('common.updateStale')"))
+check('dsh-common-update-test：一键同步到已装的卡',
+  verSrc.includes('const syncUpdated') && /installCommon', \{ cards, scripts: \[updateResult\.name\]/.test(verSrc))
+check('dsh-common-update-test：没有卡装时说明无需同步', verSrc.includes("t('common.updateNoStale')"))
+check('dsh-common-update-test：提示脚本自带持久状态', verSrc.includes("t('common.updateTraits')"))
+check('dsh-common-update-test：版本号变化时显示前后对比', verSrc.includes("t('common.updateVersion')"))
+
+
 let failed = 0
 for (const r of results) {
   if (!r.ok) failed += 1

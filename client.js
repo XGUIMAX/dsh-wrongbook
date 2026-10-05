@@ -38,6 +38,27 @@ window.__ModuleLoader__.load({
       'common.doImport': '写入库',
       'common.cancel': '取消',
       'common.libDelete': '删除',
+      'common.libUpdate': '更新',
+      'common.updateTitle': '更新脚本（',
+      'common.updateHint': '粘贴或拖入脚本的新版 JSON。只换脚本本体，库里已有的分类/用途/建议会保留（新文件里显式带了 dsh_meta 才用它）。',
+      'common.updatePlaceholder': '把新版脚本 JSON 拖到这里，或粘贴进来…',
+      'common.updateDo': '确认更新',
+      'common.updateFail': '更新失败。',
+      'common.updateDone': '已更新：{n}',
+      'common.updateSame': '内容和库里那份一样，没有改动。',
+      'common.updateDiff': '内容已替换：{old} → {new} · {ob} → {nb} 字符',
+      'common.updateKept': '库里原有的分类 / 用途 / 建议已保留。',
+      'common.updateBackup': '旧版已备份到：',
+      'common.updateStale': '有 {n} 张卡装的还是旧版 —— 更新库文件不会自动改卡上那份：',
+      'common.updateSync': '同步到已装的卡',
+      'common.updateNoStale': '没有卡装这个脚本，无需同步。',
+      'common.updateTraits': '注意：这个脚本自己会写 {list} —— 换掉库里的文件不会清掉那些数据，新版可能读到旧版留下的状态。',
+      'common.traitWorldbook': '世界书',
+      'common.traitChat': '聊天记录',
+      'common.traitVars': 'MVU 变量',
+      'common.traitTimer': '定时器',
+      'common.updateVersion': '脚本版本：{before} → {after}',
+      'common.updateNoVersion': '（没写版本号）',
       'common.catAll': '全部分类（{n} 个脚本）',
       'common.tagAll': '全部卡（{n}）',
       'common.kindHand': '自带 MVU',
@@ -353,6 +374,27 @@ window.__ModuleLoader__.load({
       'common.doImport': 'Add to library',
       'common.cancel': 'Cancel',
       'common.libDelete': 'Delete',
+      'common.libUpdate': 'Update',
+      'common.updateTitle': 'Update script (',
+      'common.updateHint': 'Paste or drop the new version of this script. Only the script body is replaced; the category/purpose/advice already in the library are kept (a dsh_meta in the new file overrides them).',
+      'common.updatePlaceholder': 'Drop the new script JSON here, or paste it...',
+      'common.updateDo': 'Apply update',
+      'common.updateFail': 'Update failed.',
+      'common.updateDone': 'Updated: {n}',
+      'common.updateSame': 'Identical to the copy in the library, nothing changed.',
+      'common.updateDiff': 'Body replaced: {old} -> {new} - {ob} -> {nb} chars',
+      'common.updateKept': 'The library copy\'s category / purpose / advice were kept.',
+      'common.updateBackup': 'Previous version backed up to: ',
+      'common.updateStale': '{n} card(s) still carry the old version - updating the library file does not touch them:',
+      'common.updateSync': 'Push to those cards',
+      'common.updateNoStale': 'No card has this script, nothing to sync.',
+      'common.updateTraits': 'Note: this script writes {list} on its own - replacing the library file does not clear that data, so the new version may read what the old one left behind.',
+      'common.traitWorldbook': 'worldbook entries',
+      'common.traitChat': 'chat messages',
+      'common.traitVars': 'MVU variables',
+      'common.traitTimer': 'timers',
+      'common.updateVersion': 'Script version: {before} -> {after}',
+      'common.updateNoVersion': '(no version declared)',
       'common.catAll': 'All categories ({n} scripts)',
       'common.tagAll': 'All cards ({n})',
       'common.kindHand': 'own MVU',
@@ -1918,6 +1960,15 @@ const [importOpen, setImportOpen] = useState(false)
       const [fitJob, setFitJob] = useState(null)
       /* 交给工作台的那段文本。生成后先给用户看，再让他决定要不要发。 */
       const [handoff, setHandoff] = useState(null)
+      /* dsh-common-update —— 更新库里已有的脚本。
+       *
+       * 与「导入」分开是有意的：导入是"新脚本进库"，同名时会连 dsh_meta 一起按新文件重算；
+       * 更新是"库里的这份换新版"，只换脚本本体、保留库里攒下的说明。
+       */
+      const [updateFor, setUpdateFor] = useState(null)
+      const [updateText, setUpdateText] = useState('')
+      const [updateResult, setUpdateResult] = useState(null)
+      const [updateDrag, setUpdateDrag] = useState(false)
       /* 两个结果区的展开状态。原来"收起"只是把数据清掉，
          既不能收起来看别的、也拿不回来；改成折叠开关。 */
       const [fitCollapsed, setFitCollapsed] = useState(false)
@@ -2084,6 +2135,43 @@ const [importOpen, setImportOpen] = useState(false)
         })()
         return () => { stopped = true }
       }, [view, fitJob])
+      /* 打开某个脚本的更新面板。 */
+      const openUpdate = (name) => {
+        setUpdateFor(name)
+        setUpdateText('')
+        setUpdateResult(null)
+      }
+
+      const doUpdate = async () => {
+        if (!updateFor || !updateText.trim()) return
+        setCommonBusy(true)
+        try {
+          const r = await apiPost({ action: 'updateCommonScript', name: updateFor, json: updateText })
+          if (!r || !r.ok) { push(t('common.updateFail'), 'bad'); return }
+          setUpdateResult(r)
+          if (!r.changed) push(t('common.updateSame'), 'info')
+          else push(t('common.updateDone').replace('{n}', r.name), 'ok')
+          await loadCommon()
+        } catch (e) {
+          push(String((e && e.message) || e), 'bad')
+        } finally {
+          setCommonBusy(false)
+        }
+      }
+
+      /*
+       * 把新版推到已经装了它的卡上。
+       *
+       * 更新库文件不会自动改卡上那份 —— 走的是同一个 installCommon，
+       * 对每张卡重新写入一遍内容，所以卡上那份会变成和库里一致（徽章从"版本不同"变"已装"）。
+       */
+      const syncUpdated = async () => {
+        const cards = (updateResult && updateResult.staleCards) || []
+        if (!cards.length) return
+        await doCommon('installCommon', { cards, scripts: [updateResult.name] }, t('common.updateSync'))
+        setUpdateResult(null)
+        setUpdateFor(null)
+      }
       const detectFit = async (name) => {
         setCommonBusy(true)
         try {
@@ -3282,6 +3370,7 @@ const [importOpen, setImportOpen] = useState(false)
                         L.broken ? h('span', { className: 'dwb-chip bad' }, t('common.broken')) : null,
                         h('span', { className: 'dwb-sub' }, (L.bytes / 1024).toFixed(0) + ' KB'),
                         h('span', { className: 'dwb-sub' }, t('common.onCards').replace('{n}', on) + '/' + cards.length),
+                        h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => openUpdate(L.name), disabled: commonBusy }, t('common.libUpdate')),
                         h('button', { type: 'button', className: 'dwb-btn tiny', onClick: () => void detectFit(L.name), disabled: commonBusy }, t('common.detectFit')),
                         h('button', { type: 'button', className: 'dwb-btn tiny primary', onClick: () => void handOff(L, cards), disabled: commonBusy }, t('common.handOff')),
                         h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => void deleteCommon(L.name), disabled: commonBusy }, t('common.libDelete')),
@@ -3296,6 +3385,97 @@ const [importOpen, setImportOpen] = useState(false)
                 )
               : h('div', { className: 'dwb-empty' }, commonCat ? t('common.catEmpty') : t('common.libEmpty')),
           ),
+
+          /* ── 更新面板 ── */
+          updateFor
+            ? h(
+                'div',
+                { className: 'dwb-card' },
+                h(
+                  'div',
+                  { className: 'dwb-row' },
+                  h('span', { className: 'dwb-title dwb-grow' }, t('common.updateTitle') + updateFor + ')'),
+                  h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => { setUpdateFor(null); setUpdateResult(null) } }, t('common.cancel')),
+                ),
+                h('div', { className: 'dwb-hint' }, t('common.updateHint')),
+                updateResult
+                  ? h(
+                      'div',
+                      { className: 'dwb-col' },
+                      h('div', { className: 'dwb-sub' }, updateResult.changed
+                        ? t('common.updateDiff')
+                            .replace('{old}', updateResult.oldHash)
+                            .replace('{new}', updateResult.newHash)
+                            .replace('{ob}', updateResult.oldBytes)
+                            .replace('{nb}', updateResult.bytes)
+                        : t('common.updateSame')),
+                      updateResult.keptMeta ? h('div', { className: 'dwb-sub' }, t('common.updateKept')) : null,
+                      /* 脚本自带持久状态 —— 换文件不会清掉它们。 */
+                      (() => {
+                        const tr = updateResult.traits || {}
+                        const parts = []
+                        if (tr.localStorage) parts.push('localStorage')
+                        if (tr.indexedDB) parts.push('indexedDB')
+                        if (tr.worldbook) parts.push(t('common.traitWorldbook'))
+                        if (tr.chat) parts.push(t('common.traitChat'))
+                        if (tr.variables) parts.push(t('common.traitVars'))
+                        if (tr.timer) parts.push(t('common.traitTimer'))
+                        if (tr.windowGlobals) parts.push('window.*')
+                        if (!parts.length) return null
+                        return h('div', { className: 'dwb-hint warn' }, t('common.updateTraits').replace('{list}', parts.join(' · ')))
+                      })(),
+                      updateResult.versionChanged
+                        ? h('div', { className: 'dwb-sub' }, t('common.updateVersion')
+                            .replace('{before}', updateResult.traitsBefore.version || t('common.updateNoVersion'))
+                            .replace('{after}', updateResult.traits.version || t('common.updateNoVersion')))
+                        : null,
+                      updateResult.backupDir ? h('div', { className: 'dwb-sub dwb-path' }, t('common.updateBackup') + updateResult.backupDir) : null,
+                      (updateResult.staleCards || []).length
+                        ? h('div', { className: 'dwb-col', style: { gap: 6 } },
+                            h('div', { className: 'dwb-hint' }, t('common.updateStale').replace('{n}', updateResult.staleCards.length)),
+                            h('div', { className: 'dwb-row', style: { gap: 4, flexWrap: 'wrap' } },
+                              updateResult.staleCards.map((f) => h('span', { className: 'dwb-chip', key: f }, f.replace(/\.json$/, '')))),
+                            h('button', { type: 'button', className: 'dwb-btn tiny primary', onClick: () => void syncUpdated(), disabled: commonBusy }, t('common.updateSync')),
+                          )
+                        : h('div', { className: 'dwb-hint' }, t('common.updateNoStale')),
+                    )
+                  : h(
+                      'div',
+                      { className: 'dwb-col' },
+                      h('textarea', {
+                        className: 'dwb-area tall' + (updateDrag ? ' dwb-drag' : ''),
+                        value: updateText,
+                        onChange: (ev) => setUpdateText(ev.target.value),
+                        onDragOver: (ev) => {
+                          ev.preventDefault();
+                          if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+                          if (!updateDrag) setUpdateDrag(true);
+                        },
+                        onDragLeave: () => { if (updateDrag) setUpdateDrag(false); },
+                        onDrop: (ev) => {
+                          ev.preventDefault();
+                          setUpdateDrag(false);
+                          const files = (ev.dataTransfer && ev.dataTransfer.files) || [];
+                          if (!files.length) return;
+                          const file = files[0];
+                          if (file.size > 8 * 1024 * 1024) {
+                            push(t('common.importTooBig'), 'bad');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setUpdateText(String(reader.result || ''));
+                          reader.onerror = () => push(t('common.importReadFail'), 'bad');
+                          reader.readAsText(file, 'utf-8');
+                        },
+                        placeholder: t('common.updatePlaceholder'),
+                      }),
+                      h('div', { className: 'dwb-row' },
+                        h('button', { type: 'button', className: 'dwb-btn primary', onClick: () => void doUpdate(), disabled: commonBusy || !updateText.trim() }, t('common.updateDo')),
+                        h('button', { type: 'button', className: 'dwb-btn ghost', onClick: () => setUpdateFor(null) }, t('common.cancel')),
+                      ),
+                    ),
+              )
+            : null,
 
           /* ── 交给工作台的文本 ── */
           handoff
