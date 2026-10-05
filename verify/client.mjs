@@ -1626,9 +1626,21 @@ check('dsh-common-update-test：有更新面板与输入区', verSrc.includes("t
 check('dsh-common-update-test：调 updateCommonScript', verSrc.includes("action: 'updateCommonScript'"))
 check('dsh-common-update-test：显示 hash 与长度差异', verSrc.includes("t('common.updateDiff')"))
 check('dsh-common-update-test：内容一样时明说没改', verSrc.includes("t('common.updateSame')"))
-check('dsh-common-update-test：列出生效前需要同步的卡', verSrc.includes("t('common.updateStale')"))
-check('dsh-common-update-test：一键同步到已装的卡',
-  verSrc.includes('const syncUpdated') && /installCommon', \{ cards, scripts: \[updateResult\.name\]/.test(verSrc))
+/* 改成自动同步后，这里不再"列出待同步的卡 + 给按钮"，而是直接报同步结果。 */
+check('dsh-common-update-test：显示已同步到哪些卡', verSrc.includes("t('common.updateSynced')"))
+check('dsh-common-update-test：同步失败时说明库已更新、卡上还是旧的',
+  verSrc.includes("t('common.updateSyncFail')"))
+/* 同步改到后端自动做 —— 前端不再有手动按钮。
+   "库里更新了但卡上还是旧的"是最容易漏的一种不一致，不该指望人再点一次。 */
+check('dsh-common-update-test：后端更新后自动同步到已装的卡',
+  /synced = installCommon\(\{ cards: staleCards, scripts: \[name\] \}\)/.test(hostSrc))
+check('dsh-common-update-test：同步走同一个 installCommon（备份与写盘行为一致）',
+  /function updateCommonScript[\s\S]{0,4000}installCommon\(\{ cards: staleCards/.test(hostSrc))
+check('dsh-common-update-test：同步失败不回滚库的更新',
+  /syncError = \(e && e\.message\) \|\| String\(e\)/.test(hostSrc) &&
+  /syncError,/.test(hostSrc))
+check('dsh-common-update-test：返回 autoSynced 标记', /autoSynced: staleCards\.length > 0 && !syncError/.test(hostSrc))
+check('dsh-common-update-test：前端不再有手动同步按钮', !verSrc.includes('const syncUpdated'))
 check('dsh-common-update-test：没有卡装时说明无需同步', verSrc.includes("t('common.updateNoStale')"))
 check('dsh-common-update-test：提示脚本自带持久状态', verSrc.includes("t('common.updateTraits')"))
 check('dsh-common-update-test：版本号变化时显示前后对比', verSrc.includes("t('common.updateVersion')"))

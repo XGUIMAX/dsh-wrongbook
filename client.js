@@ -52,6 +52,8 @@ window.__ModuleLoader__.load({
       'common.updateStale': '有 {n} 张卡装的还是旧版 —— 更新库文件不会自动改卡上那份：',
       'common.updateSync': '同步到已装的卡',
       'common.updateNoStale': '没有卡装这个脚本，无需同步。',
+      'common.updateSynced': '新版已同步到 {n} 张装了它的卡：',
+      'common.updateSyncFail': '库已更新，但同步到卡上失败（卡上还是旧版）：{e}',
       'common.updateTraits': '注意：这个脚本自己会写 {list} —— 换掉库里的文件不会清掉那些数据，新版可能读到旧版留下的状态。',
       'common.traitWorldbook': '世界书',
       'common.traitChat': '聊天记录',
@@ -388,6 +390,8 @@ window.__ModuleLoader__.load({
       'common.updateStale': '{n} card(s) still carry the old version - updating the library file does not touch them:',
       'common.updateSync': 'Push to those cards',
       'common.updateNoStale': 'No card has this script, nothing to sync.',
+      'common.updateSynced': 'New version pushed to {n} card(s) that had it:',
+      'common.updateSyncFail': 'Library updated, but pushing to cards failed (they still carry the old version): {e}',
       'common.updateTraits': 'Note: this script writes {list} on its own - replacing the library file does not clear that data, so the new version may read what the old one left behind.',
       'common.traitWorldbook': 'worldbook entries',
       'common.traitChat': 'chat messages',
@@ -2159,19 +2163,6 @@ const [importOpen, setImportOpen] = useState(false)
         }
       }
 
-      /*
-       * 把新版推到已经装了它的卡上。
-       *
-       * 更新库文件不会自动改卡上那份 —— 走的是同一个 installCommon，
-       * 对每张卡重新写入一遍内容，所以卡上那份会变成和库里一致（徽章从"版本不同"变"已装"）。
-       */
-      const syncUpdated = async () => {
-        const cards = (updateResult && updateResult.staleCards) || []
-        if (!cards.length) return
-        await doCommon('installCommon', { cards, scripts: [updateResult.name] }, t('common.updateSync'))
-        setUpdateResult(null)
-        setUpdateFor(null)
-      }
       const detectFit = async (name) => {
         setCommonBusy(true)
         try {
@@ -3430,14 +3421,16 @@ const [importOpen, setImportOpen] = useState(false)
                             .replace('{after}', updateResult.traits.version || t('common.updateNoVersion')))
                         : null,
                       updateResult.backupDir ? h('div', { className: 'dwb-sub dwb-path' }, t('common.updateBackup') + updateResult.backupDir) : null,
-                      (updateResult.staleCards || []).length
+                      /* 已装的卡会被自动同步 —— 这一步不需要用户再点一次。 */
+                      updateResult.autoSynced
                         ? h('div', { className: 'dwb-col', style: { gap: 6 } },
-                            h('div', { className: 'dwb-hint' }, t('common.updateStale').replace('{n}', updateResult.staleCards.length)),
+                            h('div', { className: 'dwb-hint' }, t('common.updateSynced').replace('{n}', updateResult.staleCards.length)),
                             h('div', { className: 'dwb-row', style: { gap: 4, flexWrap: 'wrap' } },
-                              updateResult.staleCards.map((f) => h('span', { className: 'dwb-chip', key: f }, f.replace(/\.json$/, '')))),
-                            h('button', { type: 'button', className: 'dwb-btn tiny primary', onClick: () => void syncUpdated(), disabled: commonBusy }, t('common.updateSync')),
+                              updateResult.staleCards.map((f) => h('span', { className: 'dwb-chip ok', key: f }, f.replace(/\.json$/, '')))),
                           )
-                        : h('div', { className: 'dwb-hint' }, t('common.updateNoStale')),
+                        : updateResult.syncError
+                          ? h('div', { className: 'dwb-hint bad' }, t('common.updateSyncFail').replace('{e}', updateResult.syncError))
+                          : h('div', { className: 'dwb-hint' }, t('common.updateNoStale')),
                     )
                   : h(
                       'div',
