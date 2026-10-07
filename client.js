@@ -4177,6 +4177,54 @@ const [importOpen, setImportOpen] = useState(false)
 
       // 目录选择走自己的浏览弹窗（见 BrowseModal），不依赖宿主的目录选择器。
 
+      /**
+       * 游玩时记录：在每条已写完的助手消息下面加一个「记进错题库」。
+       *
+       * 错题的现场在游玩里 —— 正文写出问题的那一刻人正在游玩界面，而面板在设置页，
+       * 要记下来得切过去手填，于是「等有空再记」通常等于不记。这里把那一轮的正文
+       * 直接抓成一条底稿：卡名当分类、正文当现象、轮次当出处，之后在面板里补描述。
+       *
+       * 正文要宿主侧去读（`getTurn` 是 Tavern 的宿主服务），所以这里只负责按钮，
+       * 数据靠 `captureTurn` 那一趟往返。
+       *
+       * 用 `ctx.inject(['tavernUi'], …)` 按需取，不写进 `export const inject` ——
+       * 那里是硬依赖，缺一个整个浏览器半就不 apply，而 Tavern 是可选装的东西。
+       */
+      if (typeof ctx.inject === 'function') ctx.inject(['tavernUi'], (scoped) => {
+        const tavernUi = scoped && scoped.tavernUi
+        if (!tavernUi || typeof tavernUi.registerMessageAction !== 'function') return
+        tavernUi.registerMessageAction({
+          id: 'dsh-wrongbook/capture',
+          label: '记进错题库',
+          run: async (context) => {
+            const gameId = String((context && context.gameId) || '')
+            const turn = Number(context && context.turn)
+            const got = await apiPost({ action: 'captureTurn', gameId, turn })
+            if (!got || got.ok === false) throw new Error((got && got.error) || '读不到这一轮的正文')
+            const text = String(got.turn.text || '').trim()
+            const cardName = String((got.turn.card && got.turn.card.name) || '').trim()
+            // 标题先按"第几轮 + 正文开头"起一个，够在列表里认出是哪一条；现象放正文
+            // 开头一段，具体描述留给面板里补 —— 记录时人在游玩，不该被要求当场把话
+            // 组织好，否则就又变成"等有空再说"。
+            const head = text.replace(/\s+/g, ' ').slice(0, 24)
+            const title = `第 ${turn} 轮：${head}`
+            const made = await apiPost({
+              action: 'addEntry',
+              // 卡名对得上哪个分类就用哪个；对不上时宿主会自己建一个分类。
+              cardKey: cardName,
+              entry: {
+                title,
+                symptom: text.slice(0, 2000),
+                refs: `第 ${turn} 轮 · ${gameId}`,
+                status: 'open',
+              },
+            })
+            if (!made || made.ok === false) throw new Error((made && made.error) || '写入错题库失败')
+            return title
+          },
+        })
+      })
+
       // 两个入口：
       //   settings.section     —— 设置面板里的一个页面
       //   settings.plugin.item —— 插件菜单那一层（与「插件市场 / 卡片更新器」同级）
