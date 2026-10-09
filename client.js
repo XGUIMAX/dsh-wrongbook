@@ -1,7 +1,11 @@
 // dsh-wrongbook browser half: the settings section.
 //
-// 跟 dsh-card-updater 同一套挂载方式：只注册一个 settings.section 座位，
-// 不碰左下角侧栏，所以界面上唯一的入口是「设置 → 错题库」。
+// 跟 dsh-card-updater 同一套挂载方式：面板本体是同一个 Panel，挂到四个座位上 ——
+// 「设置 → 错题库」、「侧栏底部按钮」（点开一个覆盖层），以及装了 Tavern 时的
+// 「每条消息下面的『记进错题库』」和「Tavern 右侧栏面板」。
+//
+// 后两个都在 Tavern 插件接口里（tavernUi），按需取、不写进 export const inject：
+// 那里是硬依赖，缺一个整个浏览器半就不 apply，而 Tavern 是可选装的东西。
 window.__ModuleLoader__.load({
   id: 'dsh-wrongbook',
   factory: (require) => {
@@ -25,6 +29,14 @@ window.__ModuleLoader__.load({
       nav: '错题库',
       'panel.title': '错题库',
       'panel.desc': '按卡片分类记下调试中踩过的坑；卡出问题时先查它自己的错题库，再跨卡查询。',
+      'stale.badge': '来源已失效',
+      'stale.rollback': '这条抓下来之后，第 {n} 轮被回退了 —— 那个轮次现在读不到，refs 里的出处已经指空。',
+      'stale.rollbackAny': '这条抓下来之后剧情线回退过，出处轮次可能已经读不到。',
+      'stale.regenerate': '第 {n} 轮重新生成过，正文和抓下来时不是同一段。',
+      'stale.edit': '第 {n} 轮正文被编辑过，和抓下来时不是同一段。',
+      'stale.any': '抓下这条之后剧情线变动过，出处轮次可能已经对不上。',
+      'stale.note': '底稿本身一个字没改 —— 只是它指的那一轮变了。',
+      'stale.clear': '确认仍有效',
       'tab.entries': '人物卡错题',
       'tab.other': '其它错题',
       'tab.scripts': '卡脚本',
@@ -294,6 +306,7 @@ window.__ModuleLoader__.load({
       'ok.added': '已记入 {name}',
       'ok.updated': '条目已更新',
       'ok.removed': '条目已删除',
+      'ok.cleared': '已清除来源失效标记',
       'ok.moved': '已复制到 {name}',
       'ok.saved': '已保存',
       'ok.backup': '已手动备份，现在共 {n} 份',
@@ -362,6 +375,14 @@ window.__ModuleLoader__.load({
       nav: 'Wrongbook',
       'panel.title': 'Wrongbook',
       'panel.desc': 'Per-card defect ledger. When a card breaks, check its own entries first, then search the rest.',
+      'stale.badge': 'Source stale',
+      'stale.rollback': 'Turn {n} was rolled back after this was captured — that turn can no longer be read, so the reference points at nothing.',
+      'stale.rollbackAny': 'The timeline was rolled back after this was captured; the source turn may no longer be readable.',
+      'stale.regenerate': 'Turn {n} was regenerated; the text is no longer the one captured here.',
+      'stale.edit': 'Turn {n} was edited; the text is no longer the one captured here.',
+      'stale.any': 'The timeline changed after this was captured; the source turn may no longer match.',
+      'stale.note': 'The entry itself is untouched — only the turn it points at changed.',
+      'stale.clear': 'Still valid',
       'search.ph': 'Cross-card search: symptom, tag, error text…',
       'tab.entries': 'Card issues',
       'tab.other': 'Other issues',
@@ -663,6 +684,7 @@ window.__ModuleLoader__.load({
       'ok.added': 'Added to {name}',
       'ok.updated': 'Entry updated',
       'ok.removed': 'Entry deleted',
+      'ok.cleared': 'Stale mark cleared',
       'ok.moved': 'Copied to {name}',
       'ok.saved': 'Saved',
       'ok.backup': 'Backup written, {n} total',
@@ -1152,7 +1174,29 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function EntryView({ entry, cards, pending, setPending, onEdit, onDelete, onCopy, onStatus }) {
+    /**
+     * 失效标记说人话。
+     *
+     * 剧情线一变（回退 / 重新生成 / 编辑正文），Tavern 会告诉宿主是哪一局哪一轮；
+     * 这条底稿如果正是从那一轮抓下来的，就会被盖上一枚标记。底稿内容一个字没动，
+     * 这里只解释"它指的地方变了"，要不要重抓一条由人决定。
+     */
+    function staleText(stale) {
+      if (!stale) return ''
+      const kind = String(stale.kind || '')
+      // `Number(null)` 是 0：直接把 null 交给 Number 会写成"第 0 轮"，
+      // 而宿主那边的"没带轮次"是合法值（退化成按整局处理）。
+      const raw = stale.turn
+      const turn = raw === null || raw === undefined || raw === '' ? NaN : Number(raw)
+      if (!Number.isFinite(turn)) return kind === 'rollback' ? t('stale.rollbackAny') : t('stale.any')
+      const n = String(turn)
+      if (kind === 'rollback') return t('stale.rollback').replace('{n}', n)
+      if (kind === 'regenerate') return t('stale.regenerate').replace('{n}', n)
+      if (kind === 'edit') return t('stale.edit').replace('{n}', n)
+      return t('stale.any')
+    }
+
+    function EntryView({ entry, cards, pending, setPending, onEdit, onDelete, onCopy, onStatus, onClearStale }) {
       const card = cards.find((c) => c.key === entry.cardKey)
       const pair = card && card.pairKey ? cards.find((c) => c.key === card.pairKey) : null
       const armKey = `entry:${entry.id}`
@@ -1163,6 +1207,9 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dwb-entry-head' },
           h('span', { className: `dwb-chip ${statusClass(entry.status)}` }, statusLabel(entry.status)),
+          entry.stale
+            ? h('span', { className: 'dwb-chip warn', title: staleText(entry.stale) }, t('stale.badge'))
+            : null,
           h('span', { className: 'dwb-entry-title' }, entry.title || '(无标题)'),
           h('span', { className: 'dwb-chip' }, entry.scope),
           entry.tags && entry.tags.length
@@ -1192,6 +1239,13 @@ window.__ModuleLoader__.load({
                 t('btn.copyTo'),
               )
             : null,
+          entry.stale
+            ? h(
+                'button',
+                { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => onClearStale(entry) },
+                t('stale.clear'),
+              )
+            : null,
           h('button', { type: 'button', className: 'dwb-btn tiny ghost', onClick: () => onEdit(entry) }, t('btn.edit')),
           h(ConfirmButton, {
             label: t('btn.remove'),
@@ -1212,6 +1266,10 @@ window.__ModuleLoader__.load({
             entry.cause ? h(Fragment, null, h('dt', null, t('field.cause')), h('dd', null, entry.cause)) : null,
             entry.fix ? h(Fragment, null, h('dt', null, t('field.fix')), h('dd', null, entry.fix)) : null,
             entry.refs ? h(Fragment, null, h('dt', null, t('field.refs')), h('dd', null, entry.refs)) : null,
+            // 标脏的原因写在详情里：角标只说"失效了"，这里说清是哪一轮、怎么变的。
+            entry.stale
+              ? h(Fragment, null, h('dt', null, t('stale.badge')), h('dd', null, `${staleText(entry.stale)} ${t('stale.note')}`))
+              : null,
             entry.evidence ? h(Fragment, null, h('dt', null, t('field.evidence')), h('dd', null, entry.evidence)) : null,
             h('dt', null, t('label.card')),
             h('dd', null, card ? card.name : entry.cardKey),
@@ -2339,6 +2397,19 @@ const [importOpen, setImportOpen] = useState(false)
         [run],
       )
 
+      /**
+       * 清掉来源失效标记。
+       *
+       * 标记是 Tavern 在剧情线变动时自动盖的，但"这条错题现在还算不算数"只有人能判 ——
+       * 回退之后重玩到同一处、问题没再出现，就该让它回到正常状态。
+       */
+      const clearStale = useCallback(
+        async (entry) => {
+          await run({ action: 'clearStale', id: entry.id }, t('ok.cleared'))
+        },
+        [run],
+      )
+
       const copyTo = useCallback(
         async (entry, toCardKey) => {
           const res = await run({ action: 'copyEntry', id: entry.id, toCardKey }, null)
@@ -3057,6 +3128,7 @@ const [importOpen, setImportOpen] = useState(false)
                         onDelete: removeEntry,
                         onCopy: copyTo,
                         onStatus: setStatus,
+                        onClearStale: clearStale,
                       }),
                     ),
                   )
@@ -3091,6 +3163,7 @@ const [importOpen, setImportOpen] = useState(false)
                               onDelete: removeEntry,
                               onCopy: copyTo,
                               onStatus: setStatus,
+                              onClearStale: clearStale,
                             }),
                           ),
                         ),
@@ -3116,6 +3189,7 @@ const [importOpen, setImportOpen] = useState(false)
                               onDelete: removeEntry,
                               onCopy: copyTo,
                               onStatus: setStatus,
+                              onClearStale: clearStale,
                             }),
                           ),
                         ),
@@ -4178,51 +4252,71 @@ const [importOpen, setImportOpen] = useState(false)
       // 目录选择走自己的浏览弹窗（见 BrowseModal），不依赖宿主的目录选择器。
 
       /**
-       * 游玩时记录：在每条已写完的助手消息下面加一个「记进错题库」。
+       * Tavern 侧的两个入口：游玩时记录（每条消息下面的按钮）、游玩时查看（右侧栏面板）。
        *
        * 错题的现场在游玩里 —— 正文写出问题的那一刻人正在游玩界面，而面板在设置页，
-       * 要记下来得切过去手填，于是「等有空再记」通常等于不记。这里把那一轮的正文
-       * 直接抓成一条底稿：卡名当分类、正文当现象、轮次当出处，之后在面板里补描述。
+       * 要记下来得切过去手填，于是「等有空再记」通常等于不记。消息按钮把那一轮直接
+       * 抓成一条底稿；侧栏面板让「记完补描述」也在同一个界面里完成，不必切回工作台。
        *
-       * 正文要宿主侧去读（`getTurn` 是 Tavern 的宿主服务），所以这里只负责按钮，
+       * 正文要宿主侧去读（`getTurn` 是 Tavern 的宿主服务），所以按钮只负责发起，
        * 数据靠 `captureTurn` 那一趟往返。
        *
        * 用 `ctx.inject(['tavernUi'], …)` 按需取，不写进 `export const inject` ——
        * 那里是硬依赖，缺一个整个浏览器半就不 apply，而 Tavern 是可选装的东西。
+       * 两个入口各自判在不在：侧栏面板是第 2 版才有的，老版本上只少这一块，按钮照旧。
        */
       if (typeof ctx.inject === 'function') ctx.inject(['tavernUi'], (scoped) => {
         const tavernUi = scoped && scoped.tavernUi
-        if (!tavernUi || typeof tavernUi.registerMessageAction !== 'function') return
-        tavernUi.registerMessageAction({
-          id: 'dsh-wrongbook/capture',
-          label: '记进错题库',
-          run: async (context) => {
-            const gameId = String((context && context.gameId) || '')
-            const turn = Number(context && context.turn)
-            const got = await apiPost({ action: 'captureTurn', gameId, turn })
-            if (!got || got.ok === false) throw new Error((got && got.error) || '读不到这一轮的正文')
-            const text = String(got.turn.text || '').trim()
-            const cardName = String((got.turn.card && got.turn.card.name) || '').trim()
-            // 标题先按"第几轮 + 正文开头"起一个，够在列表里认出是哪一条；现象放正文
-            // 开头一段，具体描述留给面板里补 —— 记录时人在游玩，不该被要求当场把话
-            // 组织好，否则就又变成"等有空再说"。
-            const head = text.replace(/\s+/g, ' ').slice(0, 24)
-            const title = `第 ${turn} 轮：${head}`
-            const made = await apiPost({
-              action: 'addEntry',
-              // 卡名对得上哪个分类就用哪个；对不上时宿主会自己建一个分类。
-              cardKey: cardName,
-              entry: {
-                title,
-                symptom: text.slice(0, 2000),
-                refs: `第 ${turn} 轮 · ${gameId}`,
-                status: 'open',
-              },
-            })
-            if (!made || made.ok === false) throw new Error((made && made.error) || '写入错题库失败')
-            return title
-          },
-        })
+        if (!tavernUi) return
+
+        if (typeof tavernUi.registerMessageAction === 'function') {
+          tavernUi.registerMessageAction({
+            id: 'dsh-wrongbook/capture',
+            label: '记进错题库',
+            run: async (context) => {
+              const gameId = String((context && context.gameId) || '')
+              const turn = Number(context && context.turn)
+              const got = await apiPost({ action: 'captureTurn', gameId, turn })
+              if (!got || got.ok === false) throw new Error((got && got.error) || '读不到这一轮的正文')
+              const text = String(got.turn.text || '').trim()
+              const cardName = String((got.turn.card && got.turn.card.name) || '').trim()
+              // 标题先按"第几轮 + 正文开头"起一个，够在列表里认出是哪一条；现象放正文
+              // 开头一段，具体描述留给面板里补 —— 记录时人在游玩，不该被要求当场把话
+              // 组织好，否则就又变成"等有空再说"。
+              const head = text.replace(/\s+/g, ' ').slice(0, 24)
+              const title = `第 ${turn} 轮：${head}`
+              const made = await apiPost({
+                action: 'addEntry',
+                // 卡名对得上哪个分类就用哪个；对不上时宿主会自己建一个分类。
+                cardKey: cardName,
+                entry: {
+                  title,
+                  symptom: text.slice(0, 2000),
+                  refs: `第 ${turn} 轮 · ${gameId}`,
+                  status: 'open',
+                  // 出处另存一份结构化的：refs 那行是给人读的，这一份是给「来源失效」
+                  // 判断用的 —— 剧情线一变，宿主拿 gameId + turn 回来对。
+                  source: { gameId, turn, textVersion: String(got.turn.textVersion || '') },
+                },
+              })
+              if (!made || made.ok === false) throw new Error((made && made.error) || '写入错题库失败')
+              return title
+            },
+          })
+        }
+
+        // 侧栏面板：把面板本体放进 Tavern 游玩界面的右侧栏。
+        //
+        // 这一块补的是「记完之后」那一半 —— 之前记完还得切回卡片工作台的设置页去补
+        // 描述，现在记、看、补都在游玩界面里。render 只拿 gameId，这里刻意不读它：
+        // 面板打开时自己会列出有哪几张卡，不预选反而不会选错一张。
+        if (typeof tavernUi.registerPanel === 'function') {
+          tavernUi.registerPanel({
+            id: 'dsh-wrongbook',
+            title: t('nav'),
+            render: () => h(Panel, null),
+          })
+        }
       })
 
       // 两个入口：

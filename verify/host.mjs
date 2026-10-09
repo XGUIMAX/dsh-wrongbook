@@ -78,6 +78,27 @@ const sections = []
 const webServer = { register: (r) => (routes.push(r), () => {}) }
 const toolsApi = { register: (d) => (tools.push(d), () => {}) }
 const promptApi = { section: (s) => (sections.push(s), () => {}) }
+/* 假的 Tavern 宿主服务。
+ *
+ * 错题库是按需取它的（`ctx.inject(['tavern'], …)`），所以沙盒要能把东西递进去 ——
+ * 否则「注册剧情线变化通知」和「给底稿标脏」这两条路一行都跑不到，而它们正是
+ * 装了 Tavern 之后才会发生的事。
+ *
+ * `getTurn` 读的是外面这个变量，测试里换掉它就能造各种那一轮的样子。 */
+let fakeTurn = null
+const timelineHandlers = []
+let tavernInjected = false
+const fakeTavern = {
+  apiVersion: 2,
+  getTurn: async () => fakeTurn,
+  onTimelineChanged: (handler) => {
+    timelineHandlers.push(handler)
+    return () => {
+      const at = timelineHandlers.indexOf(handler)
+      if (at >= 0) timelineHandlers.splice(at, 1)
+    }
+  },
+}
 const ctx = {
   // 服务按注入的方式挂在 ctx 上（插件用 `export const inject` 声明）。
   // `get` 故意拿不到东西：真实环境里它拿不到未注入的服务，而这正是工具
@@ -85,7 +106,15 @@ const ctx = {
   tools: toolsApi,
   systemPrompt: promptApi,
   get: () => undefined,
-  inject: (deps, cb) => cb({ webServer, effect: (fn) => void fn() }),
+  inject: (deps, cb) => {
+    const wantsTavern = Array.isArray(deps) && deps.includes('tavern')
+    if (wantsTavern) tavernInjected = true
+    return cb({
+      webServer,
+      tavern: wantsTavern ? fakeTavern : undefined,
+      effect: (fn) => void fn(),
+    })
+  },
   effect: (fn) => void fn(),
 }
 
@@ -881,6 +910,195 @@ check('只写盘符也能解析成根', listDriveOnly.dir === 'C:\\', listDriveO
  * 「打开目录」属于人工验证项：重启后在面板上点一下，看窗口落到哪儿、面板上回的
  * via 是哪一级回退。脚本只管到动作被正确分派为止，不碰外部程序。
  */
+
+/* ------------------------------------------------------------ Tavern 插件接口
+ *
+ * 装了 Tavern 之后错题库多两个入口：游玩时记录（消息按钮）、游玩时查看（侧栏面板）。
+ * 面板和按钮是界面上的东西，肉眼扫一眼就够；但「哪条底稿在什么条件下被标脏」是纯逻辑，
+ * 光看日志看不出对不对 —— 这里把宿主那一侧真跑一遍，全走 action，不直接调内部函数。
+ */
+check('按需取到了 Tavern 接口', tavernInjected === true)
+check('注册了剧情线变化通知', timelineHandlers.length === 1, String(timelineHandlers.length))
+
+const fireTimeline = (event) => {
+  for (const handler of [...timelineHandlers]) handler(event)
+}
+const staleOf = async (id) => {
+  const snap = await state()
+  const found = snap.entries.find((e) => e.id === id)
+  return found ? found.stale || null : undefined
+}
+
+// 抓一轮底稿：captureTurn 是「记进错题库」按钮在宿主侧的落点。
+fakeTurn = {
+  gameId: 'game-1',
+  turn: 7,
+  textVersion: 'tv-1',
+  text: '第七轮的正文，玩家在这里发现了不对劲的地方。',
+  card: { id: 'cards/测试卡A.json', name: '测试卡A' },
+}
+const cap = await action({ action: 'captureTurn', gameId: 'game-1', turn: 7 })
+check('captureTurn 交回正文', cap.ok === true && String(cap.turn.text).includes('第七轮'), cap.turn && cap.turn.text)
+check('captureTurn 交回正文版本号', cap.turn.textVersion === 'tv-1', cap.turn.textVersion)
+
+const draft = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡A.json',
+  entry: {
+    title: '第 7 轮：第七轮的正文…',
+    symptom: cap.turn.text,
+    refs: `第 ${cap.turn.turn} 轮 · ${cap.turn.gameId}`,
+    status: 'open',
+    source: { gameId: cap.turn.gameId, turn: cap.turn.turn, textVersion: cap.turn.textVersion },
+  },
+})
+const idDraft = draft.entry.id
+check(
+  '底稿存下了结构化来源',
+  draft.entry.source && draft.entry.source.turn === 7 && draft.entry.source.gameId === 'game-1',
+  JSON.stringify(draft.entry.source),
+)
+check('刚抓的底稿没有被标脏', !draft.entry.stale, JSON.stringify(draft.entry.stale))
+
+// ① 回退到它那一轮
+fireTimeline({ gameId: 'game-1', kind: 'rollback', turn: 7 })
+let st = await staleOf(idDraft)
+check('回退到来源轮次：标脏', st && st.kind === 'rollback', JSON.stringify(st))
+
+// ② 撤销回退：轮次又读得到了，标记该自己消失
+fireTimeline({ gameId: 'game-1', kind: 'undo-rollback', turn: 7 })
+st = await staleOf(idDraft)
+check('撤销回退：回退造成的标记自动清掉', st === null, JSON.stringify(st))
+
+// ③ 回退到更早的轮次，第 7 轮同样读不到了
+fireTimeline({ gameId: 'game-1', kind: 'rollback', turn: 3 })
+st = await staleOf(idDraft)
+check('回退到更早的轮次：同样标脏', st && st.kind === 'rollback', JSON.stringify(st))
+
+// ④ 重新生成：轮次还在、正文换了 —— 和回退是两种不同的失效
+fireTimeline({ gameId: 'game-1', kind: 'regenerate', turn: 7 })
+st = await staleOf(idDraft)
+check('重新生成来源轮次：标脏', st && st.kind === 'regenerate', JSON.stringify(st))
+
+// ⑤ 撤销回退不该顺手清掉它：这不是回退造成的
+fireTimeline({ gameId: 'game-1', kind: 'undo-rollback' })
+st = await staleOf(idDraft)
+check('撤销回退不动「重新生成」的标记', st && st.kind === 'regenerate', JSON.stringify(st))
+
+// ⑥ 编辑正文
+fireTimeline({ gameId: 'game-1', kind: 'edit', turn: 7 })
+st = await staleOf(idDraft)
+check('编辑来源轮次：标记改成 edit', st && st.kind === 'edit', JSON.stringify(st))
+
+// ⑦⑧⑨⑩ 四种"与我无关"
+fireTimeline({ gameId: 'game-1', kind: 'regenerate', turn: 2 })
+st = await staleOf(idDraft)
+check('重新生成别的轮次：不受影响', st && st.kind === 'edit', JSON.stringify(st))
+
+fireTimeline({ gameId: 'game-2', kind: 'rollback', turn: 7 })
+st = await staleOf(idDraft)
+check('别的局回退：不受影响', st && st.kind === 'edit', JSON.stringify(st))
+
+fireTimeline({ gameId: 'game-1', kind: 'fork', fromGameId: 'game-0' })
+st = await staleOf(idDraft)
+check('分叉：原局底稿不动', st && st.kind === 'edit', JSON.stringify(st))
+
+fireTimeline({ gameId: 'game-1', kind: 'brand-new-kind', turn: 7 })
+st = await staleOf(idDraft)
+check('不认识的 kind：按接口约定忽略', st && st.kind === 'edit', JSON.stringify(st))
+
+// ⑪ 没带轮次：拿不到更细的粒度，退化成按整局标
+fireTimeline({ gameId: 'game-1', kind: 'rollback' })
+st = await staleOf(idDraft)
+check('回退没给轮次：按整局标且 turn 记 null', st && st.kind === 'rollback' && st.turn === null, JSON.stringify(st))
+
+// ⑫ 标脏是自动的，"这条还算不算数"只能人判 —— 给一条手动清的路
+const cleared = await action({ action: 'clearStale', id: idDraft })
+check('手工清除标记', cleared.ok === true && !cleared.entry.stale, JSON.stringify(cleared.entry.stale))
+st = await staleOf(idDraft)
+check('清除之后读回来确实是空的', st === null, JSON.stringify(st))
+
+const clearMissing = await action({ action: 'clearStale', id: 'e_not_there' })
+check(
+  '清除不存在的条目：报错而不是静默成功',
+  clearMissing.ok === false && String(clearMissing.error).includes('未找到条目'),
+  clearMissing.error,
+)
+
+// ⑬ 老条目：那时只写了人读的 refs，没有结构化来源 —— 永远不该被标脏
+const legacy = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡B.json',
+  entry: { title: '没有来源的老条目', refs: '第 7 轮 · game-1' },
+})
+check('没有 source 时该字段是 null（不是缺省）', legacy.entry.source === null, JSON.stringify(legacy.entry.source))
+check('没有 stale 时该字段是 null', legacy.entry.stale === null, JSON.stringify(legacy.entry.stale))
+fireTimeline({ gameId: 'game-1', kind: 'rollback', turn: 7 })
+const legacyBack = (await state()).entries.find((e) => e.id === legacy.entry.id)
+check('没有来源的老条目不会被标脏', !!legacyBack && !legacyBack.stale, JSON.stringify(legacyBack && legacyBack.stale))
+
+// ⑭ 来源写残了：当作没有来源，而不是留个半截对象
+const partial = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡B.json',
+  entry: { title: '来源写残了', source: { turn: 3 } },
+})
+check('gameId 缺失：来源被丢弃', partial.entry.source === null, JSON.stringify(partial.entry.source))
+const partial2 = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡B.json',
+  entry: { title: '轮次不是数', source: { gameId: 'game-1', turn: 'x' } },
+})
+check('turn 不是数：来源被丢弃', partial2.entry.source === null, JSON.stringify(partial2.entry.source))
+const partial3 = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡B.json',
+  entry: { title: '轮次是 null', source: { gameId: 'game-1', turn: null } },
+})
+check(
+  'turn 是 null：来源被丢弃（Number(null) 会把它变成第 0 轮）',
+  partial3.entry.source === null,
+  JSON.stringify(partial3.entry.source),
+)
+
+/* 标记从磁盘读回来时也要保住"没带轮次"。它是合法状态（宿主没给精确轮次时
+   就按整局标），一旦被读成 0，重启之后面板就会说"第 0 轮被回退了"。 */
+const staleNull = await action({
+  action: 'addEntry',
+  cardKey: 'cards/测试卡B.json',
+  entry: { title: '没带轮次的标脏', stale: { kind: 'rollback', turn: null, at: '2026-10-09T10:00:00.000Z' } },
+})
+check(
+  '标脏的 null 轮次不会被读成第 0 轮',
+  !!staleNull.entry.stale && staleNull.entry.stale.turn === null,
+  JSON.stringify(staleNull.entry.stale),
+)
+
+// 宿主事件里 turn 写成 null（而不只是缺席）时，同样该退化成按整局标
+fireTimeline({ gameId: 'game-1', kind: 'rollback', turn: null })
+st = await staleOf(idDraft)
+check('事件里 turn 是 null：也按整局标，不当第 0 轮', st && st.turn === null, JSON.stringify(st))
+
+// ⑮ 标脏得落盘：不是在内存里飘着
+const persisted = (await state()).entries.find((e) => e.id === idDraft)
+check(
+  '标脏挂在数据里（重读一次还在）',
+  !!persisted && !!persisted.stale && persisted.stale.kind === 'rollback',
+  JSON.stringify(persisted && persisted.stale),
+)
+const dbFile = (await state()).paths.dbFile
+const onDisk = JSON.parse(fs.readFileSync(dbFile, 'utf8'))
+const diskEntry = onDisk.entries.find((e) => e.id === idDraft)
+check(
+  '标脏写进了 data.json',
+  !!diskEntry && !!diskEntry.stale && diskEntry.stale.kind === 'rollback',
+  JSON.stringify(diskEntry && diskEntry.stale),
+)
+check(
+  '来源也写进了 data.json',
+  !!diskEntry && !!diskEntry.source && diskEntry.source.turn === 7 && diskEntry.source.textVersion === 'tv-1',
+  JSON.stringify(diskEntry && diskEntry.source),
+)
 
 let failed = 0
 for (const r of results) {

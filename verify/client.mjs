@@ -471,6 +471,17 @@ check('inject = slots + locale', JSON.stringify(plugin.inject) === '["slots","lo
 /* apply 接线 */
 const registrations = []
 const dicts = []
+
+/* Tavern 侧两个入口要的假服务。
+ *
+ * 错题库是按需取它的（`ctx.inject(['tavernUi'], …)`），所以沙盒也要能把东西递进去 ——
+ * 那两条注册路只在装了 Tavern 的机器上生效，本机的验收环境不装 Tavern，
+ * 不模拟的话「消息按钮」和「侧栏面板」一行都跑不到。 */
+const uiRegs = { messageActions: [], panels: [] }
+const tavernUi = {
+  registerMessageAction: (input) => void uiRegs.messageActions.push(input),
+  registerPanel: (input) => void uiRegs.panels.push(input),
+}
 const ctx = {
   effect: (fn) => void fn(),
   locale: {
@@ -480,6 +491,10 @@ const ctx = {
   slots: {
     inject: (_key, cb) => void cb(),
     register: (options, component) => void registrations.push({ options, component }),
+  },
+  inject: (deps, cb) => {
+    if (Array.isArray(deps) && deps.includes('tavernUi')) return cb({ tavernUi })
+    return undefined
   },
 }
 plugin.apply(ctx)
@@ -505,6 +520,38 @@ check('侧栏入口的组件是 SideEntry', verSrc.includes('function SideEntry'
 check('侧栏入口自带样式（面板没开时样式表还没加载）',
   verSrc.includes('这里全部内联写死') || verSrc.includes('style: btn'))
 check('侧栏入口支持 Esc 关闭', verSrc.includes("ev.key === 'Escape'"))
+
+/* ------------------------------------------------ Tavern 侧的注册（插件接口）
+ *
+ * 两个入口都各自判"在不在"，不是为了好看：侧栏面板是插件接口第 2 版才有的，
+ * 老版本上只该少这一块，消息按钮照旧。沙盒给的是齐全的假服务，所以这里钉住
+ * 「两个都注册上了、参数合规」—— 缺哪一条都说明判错了。
+ */
+check('注册了「记进错题库」消息按钮', uiRegs.messageActions.length === 1, String(uiRegs.messageActions.length))
+check('注册了 Tavern 侧栏面板', uiRegs.panels.length === 1, String(uiRegs.panels.length))
+const captureAction = uiRegs.messageActions[0]
+check('消息按钮的 id 带插件名前缀', !!captureAction && captureAction.id === 'dsh-wrongbook/capture', captureAction && captureAction.id)
+check('消息按钮有 run', !!captureAction && typeof captureAction.run === 'function')
+const panelReg = uiRegs.panels[0]
+check(
+  '面板 id 合规（宿主按这条正则校验，写错会直接抛）',
+  !!panelReg && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(panelReg.id),
+  panelReg && panelReg.id,
+)
+check(
+  '面板标题 1–40 字',
+  !!panelReg && typeof panelReg.title === 'string' && panelReg.title.length >= 1 && panelReg.title.length <= 40,
+  panelReg && `${panelReg.title}（${String(panelReg.title).length} 字）`,
+)
+check('面板标题就是「错题库」', !!panelReg && panelReg.title === '错题库', panelReg && panelReg.title)
+check('面板 render 是函数', !!panelReg && typeof panelReg.render === 'function')
+/* render 只创建元素、不执行组件体，所以这里调用它不会碰到 hooks。 */
+const panelEl = panelReg ? panelReg.render({ gameId: 'g1', visible: true }) : null
+check(
+  '面板渲染的是面板本体（不是空壳）',
+  !!panelEl && typeof panelEl.type === 'function' && panelEl.type.name === 'Panel',
+  panelEl && panelEl.type && panelEl.type.name,
+)
 
 const zhKeys = Object.keys(dicts[0].dict.zh).sort()
 const enKeys = Object.keys(dicts[0].dict.en).sort()
@@ -579,6 +626,78 @@ renderOnce()
 check('一致时不再显示警告', !out.texts.includes('改了没重启'), out.texts.filter((t) => t.includes('重启')).join(' / '))
 check('数据目录显示', out.texts.some((t) => t.includes('tools\\wrongbook')))
 check('EntryView 已渲染', out.types.includes('EntryView'))
+
+/* 来源失效角标。
+ *
+ * 标记是宿主那一半盖的（Tavern 发来剧情线变化通知时），这里只管"盖了之后
+ * 面板看不看得见、说没说人话"。三种形态各看一遍：回退（还带得出轮次号）、
+ * 重新生成（另一种失效理由）、以及没带轮次时的退化说法。
+ *
+ * EntryView 是函数组件，`walk` 不会自动进它的内部（它只记类型名），所以要
+ * 手动展开一层再收文本 —— 它没有 hooks，纯渲染，直接调用是安全的。 */
+const textsIn = (node, acc = []) => {
+  if (node == null || typeof node === 'boolean') return acc
+  if (typeof node === 'string' || typeof node === 'number') {
+    acc.push(String(node))
+    return acc
+  }
+  if (Array.isArray(node)) return node.reduce((a, n) => textsIn(n, a), acc)
+  if (typeof node === 'object' && node.type !== undefined) {
+    for (const [k, v] of Object.entries(node.props || {})) {
+      if (k !== 'children' && (typeof v === 'string' || typeof v === 'number')) acc.push(String(v))
+    }
+    return textsIn(node.children, acc)
+  }
+  return acc
+}
+const entryTextsOf = (tree) => {
+  const el = findByType(tree, 'EntryView')[0]
+  return el ? textsIn(el.type(el.props)) : []
+}
+
+STATE.entries[0].stale = { kind: 'rollback', turn: 7, at: '2026-10-09T10:00:00.000Z' }
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+let entryTexts = entryTextsOf(renderOnce())
+check('来源失效时打出角标', entryTexts.includes('来源已失效'), entryTexts.filter((t) => t.includes('失效')).join(' / '))
+check(
+  '角标上写清是哪一轮、怎么变的',
+  entryTexts.some((t) => t.includes('第 7 轮') && t.includes('回退')),
+  entryTexts.filter((t) => t.includes('第 7 轮')).join(' / '),
+)
+check(
+  '详情里说了原因，并声明底稿本身没被改',
+  entryTexts.some((t) => t.includes('底稿本身一个字没改')),
+  entryTexts.filter((t) => t.includes('没改')).join(' / '),
+)
+check('给了「确认仍有效」的出口', entryTexts.includes('确认仍有效'), entryTexts.filter((t) => t.includes('仍有效')).join(' / '))
+
+STATE.entries[0].stale = { kind: 'regenerate', turn: 3, at: '2026-10-09T10:00:00.000Z' }
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+entryTexts = entryTextsOf(renderOnce())
+check(
+  '重新生成的标记换一套说法',
+  entryTexts.some((t) => t.includes('第 3 轮重新生成过')),
+  entryTexts.filter((t) => t.includes('重新生成')).join(' / '),
+)
+
+STATE.entries[0].stale = { kind: 'rollback', turn: null, at: '2026-10-09T10:00:00.000Z' }
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+entryTexts = entryTextsOf(renderOnce())
+check(
+  '没带轮次时退化成整局说法（不编一个假轮次号）',
+  entryTexts.some((t) => t.includes('剧情线回退过')) && !entryTexts.some((t) => t.includes('第 0 轮')),
+  entryTexts.filter((t) => t.includes('回退')).join(' / '),
+)
+
+delete STATE.entries[0].stale
+for (const fn of effects.slice()) fn()
+await new Promise((r) => setTimeout(r, 40))
+entryTexts = entryTextsOf(renderOnce())
+check('标记清掉之后角标消失', !entryTexts.includes('来源已失效'), entryTexts.filter((t) => t.includes('失效')).join(' / '))
+check('清掉之后连清除按钮也一起收走', !entryTexts.includes('确认仍有效'), entryTexts.filter((t) => t.includes('仍有效')).join(' / '))
 
 /* 回流到 Skill：按钮打开弹窗，内置 skill 在弹窗里被标成写不了 */
 const refluxBtn = findByClass(tree, 'dwb-btn').find((n) => n.children.join('').includes('回流到 Skill'))
